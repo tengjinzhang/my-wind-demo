@@ -39,49 +39,25 @@ const frameConfigs = [
   {
     key: "synthetic-wind-20260918-00",
     time: "2026-09-18T00:00:00Z",
-    dataUrl: "/data/wind/wind_001.json",
+    dataUrl: "http://192.168.20.10:8408/v1/info/wind_files/wind_001.json",
     dataType: "data_2d",
   },
   {
     key: "synthetic-wind-20260918-03",
     time: "2026-09-18T03:00:00Z",
-    dataUrl: "/data/wind/wind_002.json",
+    dataUrl: "http://192.168.20.10:8408/v1/info/wind_files/wind_002.json",
     dataType: "data_2d",
   },
   {
     key: "synthetic-wind-20260918-06",
     time: "2026-09-18T06:00:00Z",
-    dataUrl: "/data/wind/wind_003.json",
+    dataUrl: "http://192.168.20.10:8408/v1/info/wind_files/wind_003.json",
     dataType: "data_2d",
   },
   {
     key: "synthetic-wind-20260918-09",
     time: "2026-09-18T09:00:00Z",
-    dataUrl: "/data/wind/wind_004.json",
-    dataType: "data_2d",
-  },
-  {
-    key: "synthetic-wind-20260918-12",
-    time: "2026-09-18T12:00:00Z",
-    dataUrl: "/data/wind/wind_005.json",
-    dataType: "data_2d",
-  },
-  {
-    key: "synthetic-wind-20260918-15",
-    time: "2026-09-18T15:00:00Z",
-    dataUrl: "/data/wind/wind_006.json",
-    dataType: "data_2d",
-  },
-  {
-    key: "synthetic-wind-20260918-18",
-    time: "2026-09-18T18:00:00Z",
-    dataUrl: "/data/wind/wind_007.json",
-    dataType: "data_2d",
-  },
-  {
-    key: "synthetic-wind-20260918-21",
-    time: "2026-09-18T21:00:00Z",
-    dataUrl: "/data/wind/wind_008.json",
+    dataUrl: "http://192.168.20.10:8408/v1/info/wind_files/wind_004.json",
     dataType: "data_2d",
   },
 ];
