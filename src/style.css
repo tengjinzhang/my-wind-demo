@@ -1,0 +1,226 @@
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+  font-family: "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+  background: #101820;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.wind-map-page,
+.cesium-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.wind-toolbar {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.wind-button,
+.wind-player__actions button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  border-radius: 4px;
+  color: #fff;
+  background: rgba(24, 32, 40, 0.86);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.wind-button--primary {
+  border-color: rgba(119, 204, 255, 0.74);
+  background: rgba(36, 104, 180, 0.9);
+}
+
+button:hover:not(:disabled) {
+  background: rgba(75, 163, 226, 0.64);
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.wind-status {
+  padding: 7px 10px;
+  border-radius: 4px;
+  color: #cfeaff;
+  background: rgba(24, 32, 40, 0.78);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.wind-status.is-error,
+.wind-panel__error {
+  color: #ffb4a9;
+}
+
+.wind-panel {
+  position: absolute;
+  z-index: 3;
+  box-sizing: border-box;
+  padding: 13px 15px 15px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  color: #fff;
+  background: rgba(24, 32, 40, 0.88);
+  box-shadow: 0 5px 18px rgba(0, 0, 0, 0.24);
+}
+
+.wind-panel--player {
+  right: 16px;
+  bottom: 16px;
+  left: 16px;
+}
+
+.wind-panel--settings {
+  top: 16px;
+  right: 16px;
+  width: 280px;
+}
+
+.wind-panel--layer {
+  top: 310px;
+  right: 16px;
+  width: 280px;
+}
+
+.wind-panel__header {
+  margin-bottom: 12px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.wind-player__actions {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.wind-panel--layer .wind-player__actions {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.wind-player__actions button {
+  padding: 0 8px;
+}
+
+.wind-player__range {
+  width: 100%;
+  margin: 13px 0 0;
+  accent-color: #67c5ff;
+  cursor: pointer;
+}
+
+.wind-player__time {
+  margin-top: 6px;
+  color: #cfeaff;
+  font-size: 12px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.wind-panel__row {
+  display: block;
+  margin-bottom: 14px;
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 13px;
+}
+
+.wind-panel__row:last-of-type {
+  margin-bottom: 0;
+}
+
+.wind-panel__row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.wind-panel__row-head strong {
+  color: #9ad8ff;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.wind-panel input[type="range"] {
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  margin: 0;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.25);
+  cursor: pointer;
+}
+
+.wind-panel input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+  background: #9ad8ff;
+  cursor: pointer;
+}
+
+.wind-panel input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+  background: #9ad8ff;
+  cursor: pointer;
+}
+
+.wind-panel__error {
+  margin: 13px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+@media (max-width: 720px) {
+  .wind-toolbar {
+    right: 16px;
+    flex-wrap: wrap;
+  }
+
+  .wind-panel--settings {
+    top: auto;
+    right: 16px;
+    bottom: 240px;
+    left: 16px;
+    width: auto;
+  }
+
+  .wind-panel--layer {
+    top: auto;
+    right: 16px;
+    bottom: 165px;
+    left: 16px;
+    width: auto;
+  }
+
+  .wind-player__actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
