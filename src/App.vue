@@ -24,14 +24,6 @@ const config = {
   dataWorkerUrl: "./dataManager/workers/wind_field_worker.js",
   dataWorkerCount: 1,
   frameInterval: 2000,
-  cesiumToken:
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJkZGYzOTEyYi04OTQxLTRmOGItOTFhMy1hMTBjODU3Yzg3NzkiLCJpZCI6MTM1NDA3LCJpYXQiOjE2ODIzOTI4Njh9.hjfKta1J1OLGfycyaTcZZOKaOGavp0nYP_AiGZDhSg8",
-  baseTileLayer: {
-    url: "https://{s}.tianditu.gov.cn/img_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=img&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILECOL={x}&TILEROW={y}&TILEMATRIX={z}&tk=dac97be0400bd474a33f28a771eb9b5e",
-    subdomains: ["t0", "t1", "t2", "t3", "t4", "t5", "t6", "t7"],
-    minimumLevel: 3,
-    maximumLevel: 18,
-  },
   windOptions: {
     maxAge: 60,
     globalAlpha: 0.9,
@@ -112,36 +104,40 @@ function assertGlobal(name) {
 }
 
 function createViewer() {
-  // const Cesium = assertGlobal("Cesium");
-  // Cesium.Ion.defaultAccessToken = config.cesiumToken;
-
-  // viewer = new Cesium.Viewer(cesiumContainer.value, {
-  //   baseLayerPicker: false,
-  //   geocoder: false,
-  //   animation: false,
-  //   timeline: false,
-  //   navigationHelpButton: false,
-  //   infoBox: false,
-  //   selectionIndicator: false,
-  //   homeButton: true,
-  //   sceneModePicker: true,
-  //   fullscreenButton: true,
-  //   terrain: Cesium.Terrain.fromWorldTerrain(),
-  //   baseLayer: Cesium.ImageryLayer.fromProviderAsync(
-  //     new Cesium.UrlTemplateImageryProvider(config.baseTileLayer),
-  //   ),
-  // });
-
   const maplet = new MyMapAdapter.CesiumMap(document.getElementById('cesiumContainer'));
   const pMapView = markRaw(maplet);
   pMapView.initMap();
+  pMapView.switchCesiumMode(1);
 
-  // pMapView.viewer.camera.setView({
-  //   destination: Cesium.Cartesian3.fromDegrees(104, 30, 4500000),
-  // });
-
-  // pMapView.viewer.scene.debugShowFramesPerSecond = true; //帧率显示
+  addAnnotationBaseMap(pMapView);
+  viewer = pMapView.viewer
 }
+
+const addAnnotationBaseMap = (pMapView) => {
+  const viewer = pMapView.viewer;
+  if (!viewer) {
+    return;
+  }
+
+  const url =
+    'https://{s}.tianditu.gov.cn/img_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=img&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILECOL={x}&TILEROW={y}&TILEMATRIX={z}&tk=dac97be0400bd474a33f28a771eb9b5e';
+
+  const addLayer = (url, id) => {
+    const layer = viewer.imageryLayers.addImageryProvider(
+      new Cesium.UrlTemplateImageryProvider({
+        url,
+        subdomains: ['t0', 't1', 't2', 't3', 't4', 't5', 't6', 't7'],
+        maximumLevel: 18,
+      })
+    );
+    layer._id = id;
+    layer.zIndex = 3;
+    layer.alpha = 1;
+    return layer;
+  };
+
+  addLayer(url, 'TIANDITU_CVA');
+};
 
 function pausePlayback() {
   windPlayer?.pause();
