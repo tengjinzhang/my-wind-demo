@@ -855,7 +855,6 @@ class CameraVisibilityController {
 
         handler.setInputAction(() => {
           this.isMouseDown = false;
-          this.#scheduleShow();
         }, ScreenSpaceEventType.LEFT_UP);
 
         handler.setInputAction(() => {
@@ -864,7 +863,6 @@ class CameraVisibilityController {
 
         handler.setInputAction(() => {
           this.isMouseDown = false;
-          this.#scheduleShow();
         }, ScreenSpaceEventType.RIGHT_UP);
       }
     }
@@ -876,10 +874,21 @@ class CameraVisibilityController {
     };
 
     // 拖动结束（惯性也会触发 moveEnd）
-    // 只在鼠标已经松开的情况下才触发延迟恢复
+    // 统一由 moveEnd 触发重建和显示，避免 mouseup 先触发导致旧粒子闪烁
     const onMoveEnd = () => {
       if (!this.isMouseDown) {
-        this.#scheduleShow();
+        this.#cancelTimer();
+        // 延迟显示 canvas
+        if (this.getVisible()) {
+          if (this.delay > 0) {
+            this.showTimer = setTimeout(() => {
+              this.showTimer = null;
+              if (this.getVisible()) this.onShow();
+            }, this.delay);
+          } else {
+            this.onShow();
+          }
+        }
       }
     };
 
@@ -901,21 +910,6 @@ class CameraVisibilityController {
     this.offMoveStart = null;
     this.offMoveEnd = null;
     this.active = false;
-  }
-
-  /** 安排延迟显示风场。 */
-  #scheduleShow(): void {
-    this.#cancelTimer();
-    if (this.getVisible()) {
-      if (this.delay > 0) {
-        this.showTimer = setTimeout(() => {
-          this.showTimer = null;
-          if (this.getVisible()) this.onShow();
-        }, this.delay);
-      } else {
-        this.onShow();
-      }
-    }
   }
 
   #cancelTimer(): void {
