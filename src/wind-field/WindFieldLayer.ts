@@ -74,6 +74,27 @@ export interface WindLayerLike {
   canvas?: { style?: { display: string } };
 }
 
+/** Cesium Viewer 需要提供的最小结构。 */
+export interface CameraVisibilityViewerLike {
+  camera?: {
+    moveStart?: {
+      addEventListener: (listener: () => void) => (() => void) | void;
+    };
+    moveEnd?: {
+      addEventListener: (listener: () => void) => (() => void) | void;
+    };
+  };
+  scene?: {
+    canvas?: HTMLCanvasElement;
+  };
+  container?: HTMLElement;
+}
+
+/** Cesium ScreenSpaceEventHandler 的最小接口。 */
+interface ScreenSpaceEventHandlerLike {
+  setInputAction: (callback: () => void, eventType: number) => void;
+}
+
 /** CesiumWind 暴露给 demo 的最小接口。 */
 export interface CesiumWindLike {
   /** cesium-wind 提供的粒子风场图层构造函数。 */
@@ -93,6 +114,8 @@ export interface WindFieldLayerOptions {
   config?: Partial<WindFieldConfig> | WindFieldVisualConfig;
   /** config 的兼容别名，config 未传时使用。 */
   windOptions?: Partial<WindFieldConfig>;
+  /** 相机移动后延迟多少毫秒恢复风场显示，默认 0。 */
+  cameraVisibilityDelay?: number;
 }
 
 const DEFAULT_WIND_CONFIG: WindFieldConfig = {
@@ -362,6 +385,10 @@ export default class WindFieldLayer {
   isDisposed: boolean;
   /** 是否已经安排了一次粒子重建。 */
   rebuildScheduled: boolean;
+  /** 相机移动后延迟恢复风场的毫秒数。 */
+  cameraVisibilityDelay: number;
+  /** 相机可见性控制器实例。 */
+  #cameraController: CameraVisibilityController | null;
 
   /**
    * 创建风场渲染实例。
@@ -385,6 +412,15 @@ export default class WindFieldLayer {
     this.visible = false;
     this.isDisposed = false;
     this.rebuildScheduled = false;
+    this.cameraVisibilityDelay = Math.max(0, Number(options.cameraVisibilityDelay) || 0);
+    this.#cameraController = null;
+    this.#cameraController = new CameraVisibilityController({
+      viewer: this.viewer,
+      delay: this.cameraVisibilityDelay,
+      onHide: () => this.#setCanvasVisible(false),
+      onShow: () => this.#setCanvasVisible(true),
+      getVisible: () => this.visible,
+    });
   }
 
   /**
@@ -420,6 +456,7 @@ export default class WindFieldLayer {
     this.windLayer.addTo(this.viewer);
     this.visible = true;
     this.#applyConfigToWindCore();
+    this.#cameraController?.ensureActive();
     return this.windLayer;
   }
 
@@ -636,6 +673,7 @@ export default class WindFieldLayer {
    */
   dispose(): void {
     this.removeWindLayer();
+    this.#cameraController?.dispose();
     this.viewer = null;
     this.CesiumWind = null;
     this.isDisposed = true;
@@ -757,6 +795,133 @@ export default class WindFieldLayer {
     const canvas = this.windLayer && this.windLayer.canvas;
     if (canvas && canvas.style) {
       canvas.style.display = visible ? "" : "none";
+    }
+  }
+}
+
+/**
+ * 相机移动可见性控制器（内部类）。
+ *
+ * 监听相机 moveStart/moveEnd 和鼠标抬起事件，实现 nullschool 效果：
+ * - 相机开始移动时立即隐藏风场
+ * - 鼠标抬起后延迟恢复显示风场
+ *
+ * 注意：moveEnd 在拖动中途停下来也会触发（惯性），所以需要配合 mouseup
+ * 来判断用户是否真的松开了鼠标。只有松开鼠标后才会触发延迟恢复。
+ */
+class CameraVisibilityController {
+  private readonly viewer: CameraVisibilityViewerLike | null;
+  private readonly delay: number;
+  private readonly onHide: () => void;
+  private readonly onShow: () => void;
+  private readonly getVisible: () => boolean;
+  private showTimer: ReturnType<typeof setTimeout> | null = null;
+  private offMoveStart: (() => void) | null = null;
+  private offMoveEnd: (() => void) | null = null;
+  /** 鼠标是否正在按住（拖动中） */
+  private isMouseDown = false;
+  private active = false;
+
+  constructor(options: {
+    viewer: unknown;
+    delay: number;
+    onHide: () => void;
+    onShow: () => void;
+    getVisible: () => boolean;
+  }) {
+    this.viewer = (options.viewer as CameraVisibilityViewerLike) || null;
+    this.delay = Math.max(0, options.delay || 0);
+    this.onHide = options.onHide;
+    this.onShow = options.onShow;
+    this.getVisible = options.getVisible;
+  }
+
+  /** 启动相机和鼠标事件监听。外部在创建图层后调用一次。 */
+  ensureActive(): void {
+    if (this.active || !this.viewer?.camera) return;
+
+    // 使用 Cesium 原生的 ScreenSpaceEventHandler 监听鼠标事件
+    const canvas = this.viewer.scene?.canvas;
+    if (canvas) {
+      // Cesium 全局对象，用于 ScreenSpaceEventHandler
+      const Cesium = (globalThis as { Cesium?: unknown }).Cesium;
+      if (Cesium) {
+        const ScreenSpaceEventHandler = (Cesium as { ScreenSpaceEventHandler?: new (el: HTMLElement) => ScreenSpaceEventHandlerLike }).ScreenSpaceEventHandler!;
+        const ScreenSpaceEventType = (Cesium as { ScreenSpaceEventType?: Record<string, number> }).ScreenSpaceEventType!;
+        const handler = new ScreenSpaceEventHandler(canvas as HTMLElement);
+        handler.setInputAction(() => {
+          this.isMouseDown = true;
+        }, ScreenSpaceEventType.LEFT_DOWN);
+
+        handler.setInputAction(() => {
+          this.isMouseDown = false;
+          this.#scheduleShow();
+        }, ScreenSpaceEventType.LEFT_UP);
+
+        handler.setInputAction(() => {
+          this.isMouseDown = true;
+        }, ScreenSpaceEventType.RIGHT_DOWN);
+
+        handler.setInputAction(() => {
+          this.isMouseDown = false;
+          this.#scheduleShow();
+        }, ScreenSpaceEventType.RIGHT_UP);
+      }
+    }
+
+    const onMoveStart = () => {
+      // 相机开始移动，立即隐藏风场
+      this.#cancelTimer();
+      if (this.getVisible()) this.onHide();
+    };
+
+    // 拖动结束（惯性也会触发 moveEnd）
+    // 只在鼠标已经松开的情况下才触发延迟恢复
+    const onMoveEnd = () => {
+      if (!this.isMouseDown) {
+        this.#scheduleShow();
+      }
+    };
+
+    const ms = this.viewer.camera.moveStart?.addEventListener(onMoveStart);
+    const me = this.viewer.camera.moveEnd?.addEventListener(onMoveEnd);
+
+    if (!ms && !me) return;
+
+    this.offMoveStart = typeof ms === "function" ? ms : null;
+    this.offMoveEnd = typeof me === "function" ? me : null;
+    this.active = true;
+  }
+
+  /** 释放资源。 */
+  dispose(): void {
+    this.#cancelTimer();
+    this.offMoveStart?.();
+    this.offMoveEnd?.();
+    this.offMoveStart = null;
+    this.offMoveEnd = null;
+    this.active = false;
+  }
+
+  /** 安排延迟显示风场。 */
+  #scheduleShow(): void {
+    this.#cancelTimer();
+    if (this.getVisible()) {
+      if (this.delay > 0) {
+        this.showTimer = setTimeout(() => {
+          this.showTimer = null;
+          if (this.getVisible()) this.onShow();
+        }, this.delay);
+      } else {
+        this.onShow();
+      }
+    }
+  }
+
+  #cancelTimer(): void {
+    if (this.showTimer !== null) {
+      clearTimeout(this.showTimer);
+      this.showTimer = null;
     }
   }
 }
