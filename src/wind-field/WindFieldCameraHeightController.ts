@@ -8,9 +8,6 @@ export interface CameraHeightViewerLike {
     changed?: {
       addEventListener: (listener: () => void) => (() => void) | void;
     };
-    moveEnd?: {
-      addEventListener: (listener: () => void) => (() => void) | void;
-    };
   };
   scene?: {
     postRender?: {
@@ -215,11 +212,6 @@ export default class WindFieldCameraHeightController {
 
     const postRenderRemove = this.viewer.scene?.postRender?.addEventListener(handleCameraChanged);
     if (typeof postRenderRemove === "function") removers.push(postRenderRemove);
-
-    const moveEndRemove = this.viewer.camera?.moveEnd?.addEventListener(() => {
-      this.windLayer.rebuildParticles();
-    });
-    if (typeof moveEndRemove === "function") removers.push(moveEndRemove);
 
     if (removers.length === 0) {
       throw new Error("WindFieldCameraHeightController requires a camera or scene event.");
