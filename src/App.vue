@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, shallowRef, markRaw } from "
 
 import WindFieldLayerControls from "./components/WindFieldLayerControls.vue";
 import WindFieldParametersControls from "./components/WindFieldParametersControls.vue";
-import { WindFieldCameraHeightController, WindFieldPlayer } from "./wind-field";
+import { CameraHeightController, WindFieldPlayer } from "./wind-field";
 
 const loading = ref(false);
 const errorMessage = ref("");
@@ -177,12 +177,12 @@ function createWindPlayer() {
     },
   });
   windLayer.value = windPlayer.getLayer();
-  cameraHeightController = new WindFieldCameraHeightController({
+  cameraHeightController = new CameraHeightController({
     viewer,
-    windLayer: windLayer.value,
+    target: windLayer.value,
     minHeightChange: 10,
     onChanged: (state) => {
-      console.info("[WindFieldCameraHeightController] 风场配置已更新", {
+      console.info("[CameraHeightController] 风场配置已更新", {
         cameraHeight: Math.round(state.height),
         cameraHeightKm: Number((state.height / 1000).toFixed(2)),
         profileIndex: state.profileIndex,

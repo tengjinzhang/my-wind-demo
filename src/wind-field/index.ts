@@ -6,19 +6,18 @@
  */
 export { default as WindFieldPlayer } from "./WindFieldPlayer";
 export {
-  default as WindFieldCameraHeightController,
-} from "./WindFieldCameraHeightController";
-export {
-  DEFAULT_WIND_FIELD_CAMERA_HEIGHT_PROFILES,
-  DEFAULT_WIND_FIELD_VELOCITY_NORMALIZATION,
-} from "./WindFieldCameraHeightController";
+  default as CameraHeightController,
+  DEFAULT_CAMERA_HEIGHT_PROFILES,
+  DEFAULT_VELOCITY_NORMALIZATION,
+} from "./CameraHeightController";
 export type {
   CameraHeightViewerLike,
-  WindFieldCameraHeightControllerOptions,
-  WindFieldCameraHeightProfile,
-  WindFieldCameraHeightState,
-  WindFieldVelocityNormalizationOptions,
-} from "./WindFieldCameraHeightController";
+  CameraHeightControllerOptions,
+  CameraHeightProfile,
+  CameraHeightState,
+  CameraHeightVelocityNormalizationOptions,
+  CameraHeightLayerLike,
+} from "./CameraHeightController";
 export type {
   WindFieldPlayerCallbacks,
   WindFieldPlayerLoadOptions,

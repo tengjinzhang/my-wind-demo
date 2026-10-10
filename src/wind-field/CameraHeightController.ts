@@ -1,5 +1,11 @@
-import type WindFieldLayer from "./WindFieldLayer";
-import type { WindFieldConfig } from "./WindFieldLayer";
+/** 通用图层接口，任何按相机高度调整参数的图层都实现它。 */
+export interface CameraHeightLayerLike {
+  setMaxAge?: (v: number) => void;
+  setGlobalAlpha?: (v: number) => void;
+  setLineWidth?: (v: number) => void;
+  setVelocityScale?: (v: number) => void;
+  setPaths?: (v: number) => void;
+}
 
 /** Cesium 相机需要提供的最小结构。 */
 export interface CameraHeightViewerLike {
@@ -16,10 +22,13 @@ export interface CameraHeightViewerLike {
   };
 }
 
-/** 按相机高度使用的一档风场参数。 */
-export interface WindFieldCameraHeightProfile
+/** 按相机高度使用的一档参数。 */
+export interface CameraHeightProfile
   extends Partial<
-    Pick<WindFieldConfig, "maxAge" | "globalAlpha" | "lineWidth" | "velocityScale" | "paths">
+    Pick<
+      CameraHeightLayerLike,
+      "setMaxAge" | "setGlobalAlpha" | "setLineWidth" | "setVelocityScale" | "setPaths"
+    >
   > {
   /** 该档位覆盖的最大相机高度，单位为米。最后一档通常使用 Infinity。 */
   maxHeight: number;
@@ -27,96 +36,96 @@ export interface WindFieldCameraHeightProfile
   key?: string;
 }
 
-/** 默认的相机高度风场参数档位。外部传入 profiles 时会整体覆盖。 */
-export const DEFAULT_WIND_FIELD_CAMERA_HEIGHT_PROFILES: WindFieldCameraHeightProfile[] = [
+/** 默认的相机高度参数档位。外部传入 profiles 时会整体覆盖。 */
+export const DEFAULT_CAMERA_HEIGHT_PROFILES: CameraHeightProfile[] = [
   {
     key: "ground",
     maxHeight: 1000,
-    maxAge: 18,
-    lineWidth: 0.75,
-    velocityScale: 1 / 650,
-    paths: 120,
+    setMaxAge: 18,
+    setLineWidth: 0.75,
+    setVelocityScale: 1 / 650,
+    setPaths: 120,
   },
   {
     key: "near-ground",
     maxHeight: 5000,
-    maxAge: 24,
-    lineWidth: 0.8,
-    velocityScale: 1 / 600,
-    paths: 220,
+    setMaxAge: 24,
+    setLineWidth: 0.8,
+    setVelocityScale: 1 / 600,
+    setPaths: 220,
   },
   {
     key: "local",
     maxHeight: 20000,
-    maxAge: 30,
-    lineWidth: 0.9,
-    velocityScale: 1 / 500,
-    paths: 400,
+    setMaxAge: 30,
+    setLineWidth: 0.9,
+    setVelocityScale: 1 / 500,
+    setPaths: 400,
   },
   {
     key: "city",
     maxHeight: 50000,
-    maxAge: 36,
-    lineWidth: 1,
-    velocityScale: 1 / 400,
-    paths: 650,
+    setMaxAge: 36,
+    setLineWidth: 1,
+    setVelocityScale: 1 / 400,
+    setPaths: 650,
   },
   {
     key: "regional-low",
     maxHeight: 100000,
-    maxAge: 42,
-    lineWidth: 1.1,
-    velocityScale: 1 / 320,
-    paths: 850,
+    setMaxAge: 42,
+    setLineWidth: 1.1,
+    setVelocityScale: 1 / 320,
+    setPaths: 850,
   },
   {
     key: "regional",
     maxHeight: 250000,
-    maxAge: 48,
-    lineWidth: 1.25,
-    velocityScale: 1 / 280,
-    paths: 1050,
+    setMaxAge: 48,
+    setLineWidth: 1.25,
+    setVelocityScale: 1 / 280,
+    setPaths: 1050,
   },
   {
     key: "medium",
     maxHeight: 800000,
-    maxAge: 55,
-    lineWidth: 1.5,
-    velocityScale: 1 / 230,
-    paths: 1300,
+    setMaxAge: 55,
+    setLineWidth: 1.5,
+    setVelocityScale: 1 / 230,
+    setPaths: 1300,
   },
   {
     key: "high",
     maxHeight: 2000000,
-    maxAge: 60,
-    lineWidth: 1.75,
-    velocityScale: 1 / 190,
-    paths: 1700,
+    setMaxAge: 60,
+    setLineWidth: 1.75,
+    setVelocityScale: 1 / 190,
+    setPaths: 1700,
   },
   {
     key: "overview",
     maxHeight: Infinity,
-    maxAge: 65,
-    lineWidth: 2,
-    velocityScale: 1 / 150,
-    paths: 2200,
+    setMaxAge: 65,
+    setLineWidth: 2,
+    setVelocityScale: 1 / 150,
+    setPaths: 2200,
   },
 ];
 
-/** 相机高度控制器回调中返回的当前状态。 */
-export interface WindFieldCameraHeightState {
+/** 控制器回调中返回的当前状态。 */
+export interface CameraHeightState {
   /** 当前相机高度，单位为米。 */
   height: number;
   /** 当前命中的档位索引。 */
   profileIndex: number;
   /** 当前命中的档位。 */
-  profile: WindFieldCameraHeightProfile;
+  profile: CameraHeightProfile;
   /** 当前实际应用的速度缩放比例。 */
   velocityScale: number | null;
 }
 
 /** 将世界坐标位移归一化为近似稳定的屏幕移动速度。 */
-export interface WindFieldVelocityNormalizationOptions {
+export interface CameraHeightVelocityNormalizationOptions {
   /** 参考相机高度，单位为米。 */
   referenceHeight: number;
   /** 参考高度下使用的速度缩放比例。 */
@@ -130,7 +139,7 @@ export interface WindFieldVelocityNormalizationOptions {
 }
 
 /** 默认的世界坐标速度归一化参数。外部传入 null 可关闭归一化。 */
-export const DEFAULT_WIND_FIELD_VELOCITY_NORMALIZATION: WindFieldVelocityNormalizationOptions = {
+export const DEFAULT_VELOCITY_NORMALIZATION: CameraHeightVelocityNormalizationOptions = {
   referenceHeight: 4500000,
   referenceVelocityScale: 1 / 150,
   exponent: 1,
@@ -139,34 +148,34 @@ export const DEFAULT_WIND_FIELD_VELOCITY_NORMALIZATION: WindFieldVelocityNormali
 };
 
 /** 相机高度控制器配置。 */
-export interface WindFieldCameraHeightControllerOptions {
+export interface CameraHeightControllerOptions {
   /** Cesium Viewer 或提供 camera.changed 的兼容对象。 */
   viewer: CameraHeightViewerLike;
-  /** 当前 demo 的风场图层包装类。 */
-  windLayer: WindFieldLayer;
+  /** 需要按高度调整参数的图层（风场、洋流、烟雾等）。 */
+  target: CameraHeightLayerLike;
   /** 按最大高度从低到高排列的参数档位。 */
-  profiles?: WindFieldCameraHeightProfile[];
+  profiles?: CameraHeightProfile[];
   /** 高度变化小于该值时忽略，单位为米，默认 1。 */
   minHeightChange?: number;
   /** 命中档位后通知外部。 */
-  onChanged?: (state: WindFieldCameraHeightState) => void;
+  onChanged?: (state: CameraHeightState) => void;
   /** 按当前相机高度连续归一化速度；不传时使用档位里的固定速度。 */
-  velocityNormalization?: WindFieldVelocityNormalizationOptions | null;
+  velocityNormalization?: CameraHeightVelocityNormalizationOptions | null;
 }
 
 /**
- * 根据 Cesium 相机高度动态调整风场粒子参数。
+ * 根据 Cesium 相机高度动态调整图层参数。
  *
- * 控制器只负责监听相机和选择参数档位，实际参数写入委托给 WindFieldLayer，
- * 因此不会直接依赖 cesium-wind 的内部实现。
+ * 控制器只负责监听相机和选择参数档位，实际参数写入委托给目标图层，
+ * 因此不会直接依赖任何特定图层类型的内部实现。
  */
-export default class WindFieldCameraHeightController {
+export default class CameraHeightController {
   private readonly viewer: CameraHeightViewerLike;
-  private readonly windLayer: WindFieldLayer;
-  private readonly profiles: WindFieldCameraHeightProfile[];
+  private readonly target: CameraHeightLayerLike;
+  private readonly profiles: CameraHeightProfile[];
   private readonly minHeightChange: number;
-  private readonly onChanged?: (state: WindFieldCameraHeightState) => void;
-  private readonly velocityNormalization: WindFieldVelocityNormalizationOptions | null;
+  private readonly onChanged?: (state: CameraHeightState) => void;
+  private readonly velocityNormalization: CameraHeightVelocityNormalizationOptions | null;
   private removeListeners: (() => void) | null;
   private started: boolean;
   private disposed: boolean;
@@ -174,23 +183,23 @@ export default class WindFieldCameraHeightController {
   private currentProfileIndex: number | null;
   private lastVelocityScale: number | null;
 
-  constructor(options: WindFieldCameraHeightControllerOptions) {
+  constructor(options: CameraHeightControllerOptions) {
     if (!options?.viewer) {
-      throw new Error("WindFieldCameraHeightController requires a viewer.");
+      throw new Error("CameraHeightController requires a viewer.");
     }
-    if (!options.windLayer) {
-      throw new Error("WindFieldCameraHeightController requires a wind layer.");
+    if (!options.target) {
+      throw new Error("CameraHeightController requires a target layer.");
     }
     this.viewer = options.viewer;
-    this.windLayer = options.windLayer;
+    this.target = options.target;
     this.profiles = this.#normalizeProfiles(
-      options.profiles ?? DEFAULT_WIND_FIELD_CAMERA_HEIGHT_PROFILES,
+      options.profiles ?? DEFAULT_CAMERA_HEIGHT_PROFILES,
     );
     this.minHeightChange = Math.max(0, Number(options.minHeightChange) || 1);
     this.onChanged = options.onChanged;
     this.velocityNormalization = this.#normalizeVelocityNormalization(
       options.velocityNormalization === undefined
-        ? DEFAULT_WIND_FIELD_VELOCITY_NORMALIZATION
+        ? DEFAULT_VELOCITY_NORMALIZATION
         : options.velocityNormalization,
     );
     this.removeListeners = null;
@@ -214,7 +223,7 @@ export default class WindFieldCameraHeightController {
     if (typeof postRenderRemove === "function") removers.push(postRenderRemove);
 
     if (removers.length === 0) {
-      throw new Error("WindFieldCameraHeightController requires a camera or scene event.");
+      throw new Error("CameraHeightController requires a camera or scene event.");
     }
 
     this.removeListeners = () => removers.forEach((remove) => remove());
@@ -222,8 +231,8 @@ export default class WindFieldCameraHeightController {
     this.update(true);
   }
 
-  /** 手动读取当前相机高度并更新风场参数。 */
-  update(force = false): WindFieldCameraHeightState | null {
+  /** 手动读取当前相机高度并更新图层参数。 */
+  update(force = false): CameraHeightState | null {
     if (this.disposed) return null;
 
     const height = this.#getCameraHeight();
@@ -232,7 +241,11 @@ export default class WindFieldCameraHeightController {
     const velocityScale = this.#getVelocityScale(height, this.profiles[profileIndex]);
     const profileChanged = profileIndex !== this.currentProfileIndex;
     const velocityChanged = this.#hasVelocityChanged(velocityScale);
-    if (!force && this.lastHeight !== null && Math.abs(height - this.lastHeight) < this.minHeightChange) {
+    if (
+      !force &&
+      this.lastHeight !== null &&
+      Math.abs(height - this.lastHeight) < this.minHeightChange
+    ) {
       if (!profileChanged && !velocityChanged) {
         return this.#getState(height, profileIndex);
       }
@@ -244,7 +257,7 @@ export default class WindFieldCameraHeightController {
       this.#applyProfile(this.profiles[profileIndex], this.velocityNormalization === null);
     }
     if (velocityScale !== null && (force || profileChanged || velocityChanged)) {
-      this.windLayer.setVelocityScale(velocityScale);
+      this.target.setVelocityScale?.(velocityScale);
       this.lastVelocityScale = velocityScale;
     }
     if (profileChanged || velocityChanged) {
@@ -257,7 +270,7 @@ export default class WindFieldCameraHeightController {
   }
 
   /** 返回当前控制器状态；尚未读取到相机高度时返回 null。 */
-  getState(): WindFieldCameraHeightState | null {
+  getState(): CameraHeightState | null {
     if (this.lastHeight === null || this.currentProfileIndex === null) return null;
     return this.#getState(this.lastHeight, this.currentProfileIndex);
   }
@@ -284,18 +297,18 @@ export default class WindFieldCameraHeightController {
     return index >= 0 ? index : this.profiles.length - 1;
   }
 
-  #applyProfile(profile: WindFieldCameraHeightProfile, applyVelocityScale: boolean): void {
-    if (profile.maxAge !== undefined) this.windLayer.setMaxAge(profile.maxAge);
-    if (profile.globalAlpha !== undefined) this.windLayer.setGlobalAlpha(profile.globalAlpha);
-    if (profile.lineWidth !== undefined) this.windLayer.setLineWidth(profile.lineWidth);
-    if (applyVelocityScale && profile.velocityScale !== undefined) {
-      this.windLayer.setVelocityScale(profile.velocityScale);
-      this.lastVelocityScale = profile.velocityScale;
+  #applyProfile(profile: CameraHeightProfile, applyVelocityScale: boolean): void {
+    if (profile.setMaxAge !== undefined) this.target.setMaxAge?.(profile.setMaxAge);
+    if (profile.setGlobalAlpha !== undefined) this.target.setGlobalAlpha?.(profile.setGlobalAlpha);
+    if (profile.setLineWidth !== undefined) this.target.setLineWidth?.(profile.setLineWidth);
+    if (applyVelocityScale && profile.setVelocityScale !== undefined) {
+      this.target.setVelocityScale?.(profile.setVelocityScale);
+      this.lastVelocityScale = profile.setVelocityScale;
     }
-    if (profile.paths !== undefined) this.windLayer.setPaths(profile.paths);
+    if (profile.setPaths !== undefined) this.target.setPaths?.(profile.setPaths);
   }
 
-  #getState(height: number, profileIndex: number): WindFieldCameraHeightState {
+  #getState(height: number, profileIndex: number): CameraHeightState {
     return {
       height,
       profileIndex,
@@ -304,8 +317,8 @@ export default class WindFieldCameraHeightController {
     };
   }
 
-  #getVelocityScale(height: number, profile: WindFieldCameraHeightProfile): number | null {
-    if (!this.velocityNormalization) return profile.velocityScale ?? null;
+  #getVelocityScale(height: number, profile: CameraHeightProfile): number | null {
+    if (!this.velocityNormalization) return profile.setVelocityScale ?? null;
 
     const { referenceHeight, referenceVelocityScale, exponent = 1 } = this.velocityNormalization;
     const factor = Math.pow(Math.max(height, 0) / referenceHeight, exponent);
@@ -326,13 +339,17 @@ export default class WindFieldCameraHeightController {
     return Math.abs(nextVelocityScale - this.lastVelocityScale) / denominator >= 0.01;
   }
 
-  #normalizeProfiles(profiles: WindFieldCameraHeightProfile[]): WindFieldCameraHeightProfile[] {
+  #normalizeProfiles(profiles: CameraHeightProfile[]): CameraHeightProfile[] {
     const normalized = profiles.map((profile) => ({
       ...profile,
       maxHeight: Number(profile.maxHeight),
     }));
 
-    if (normalized.some((profile) => !Number.isFinite(profile.maxHeight) && profile.maxHeight !== Infinity)) {
+    if (
+      normalized.some(
+        (profile) => !Number.isFinite(profile.maxHeight) && profile.maxHeight !== Infinity,
+      )
+    ) {
       throw new TypeError("Each camera height profile maxHeight must be finite or Infinity.");
     }
 
@@ -340,8 +357,8 @@ export default class WindFieldCameraHeightController {
   }
 
   #normalizeVelocityNormalization(
-    options?: WindFieldVelocityNormalizationOptions,
-  ): WindFieldVelocityNormalizationOptions | null {
+    options?: CameraHeightVelocityNormalizationOptions,
+  ): CameraHeightVelocityNormalizationOptions | null {
     if (!options) return null;
 
     const referenceHeight = Number(options.referenceHeight);
@@ -366,5 +383,3 @@ export default class WindFieldCameraHeightController {
     };
   }
 }
-
-export { WindFieldCameraHeightController };
