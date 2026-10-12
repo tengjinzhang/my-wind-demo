@@ -119,6 +119,15 @@ function pausePlayback() {
   windPlayer?.pause();
 }
 
+function stopPlayback() {
+  windPlayer?.clear();
+  isPlaying.value = false;
+  isReady.value = false;
+  currentIndex.value = 0;
+  currentTime.value = "";
+  frameCount.value = 0;
+}
+
 function startPlayback() {
   windPlayer?.play();
 }
@@ -283,6 +292,7 @@ onBeforeUnmount(() => {
         <button type="button" :disabled="!isReady" @click="showPreviousFrame">上一帧</button>
         <button type="button" :disabled="!isReady" @click="showNextFrame">下一帧</button>
         <button type="button" :disabled="!isReady" @click="showLastFrame">末帧</button>
+        <button type="button" :disabled="!isReady" @click="stopPlayback">结束播放</button>
       </div>
       <input
         v-model.number="currentIndex"
@@ -306,10 +316,10 @@ onBeforeUnmount(() => {
       :disabled="!isReady"
       :error-message="errorMessage"
     /> -->
-    <!-- <WindFieldLayerControls
+    <WindFieldLayerControls
       :wind-layer="windLayer"
       :disabled="!isReady"
       @layer-disposed="handleLayerDisposed"
-    /> -->
+    />
   </main>
 </template>
