@@ -12,6 +12,8 @@ const isPlaying = ref(false);
 const frameCount = ref(0);
 const currentIndex = ref(0);
 const currentTime = ref("");
+// 速度单位：m/s 使用固定参数，px/s 开启相机高度自适应
+const velocityUnit = ref("m/s");
 
 let viewer = null;
 let cameraHeightController = null;
@@ -152,6 +154,49 @@ function showLastFrame() {
   windPlayer?.last();
 }
 
+function setVelocityUnit(unit) {
+  velocityUnit.value = unit;
+  if (!windLayer.value) return;
+
+  if (unit === "m/s") {
+    // m/s 模式：禁用相机高度控制器，使用固定参数
+    if (cameraHeightController) {
+      cameraHeightController.dispose();
+      cameraHeightController = null;
+    }
+    // 应用默认配置中的固定速度参数
+    windLayer.value?.setVelocityScale?.(config.windOptions.velocityScale);
+    windLayer.value?.setPaths?.(config.windOptions.paths);
+    windLayer.value?.setLineWidth?.(2);
+    windLayer.value?.setMaxAge?.(config.windOptions.maxAge);
+    console.info("[速度单位] 已切换至 m/s，使用固定参数", {
+      velocityScale: config.windOptions.velocityScale,
+      paths: config.windOptions.paths,
+    });
+  } else {
+    // px/s 模式：启用相机高度控制器
+    cameraHeightController?.dispose();
+    cameraHeightController = new CameraHeightController({
+      viewer,
+      target: windLayer.value,
+      minHeightChange: 10,
+      onChanged: (state) => {
+        console.info("[CameraHeightController] 风场配置已更新", {
+          cameraHeight: Math.round(state.height),
+          cameraHeightKm: Number((state.height / 1000).toFixed(2)),
+          profileIndex: state.profileIndex,
+          profileKey: state.profile.key,
+          normalizedVelocityScale: state.velocityScale,
+          profileConfig: state.profile,
+          appliedConfig: windLayer.value?.getConfig(),
+        });
+      },
+    });
+    cameraHeightController.start();
+    console.info("[速度单位] 已切换至 px/s，开启相机高度自适应");
+  }
+}
+
 function createWindPlayer() {
   cameraHeightController?.dispose();
   cameraHeightController = null;
@@ -186,23 +231,29 @@ function createWindPlayer() {
     },
   });
   windLayer.value = windPlayer.getLayer();
-  cameraHeightController = new CameraHeightController({
-    viewer,
-    target: windLayer.value,
-    minHeightChange: 10,
-    onChanged: (state) => {
-      console.info("[CameraHeightController] 风场配置已更新", {
-        cameraHeight: Math.round(state.height),
-        cameraHeightKm: Number((state.height / 1000).toFixed(2)),
-        profileIndex: state.profileIndex,
-        profileKey: state.profile.key,
-        normalizedVelocityScale: state.velocityScale,
-        profileConfig: state.profile,
-        appliedConfig: windLayer.value?.getConfig(),
-      });
-    },
-  });
-  cameraHeightController.start();
+  cameraHeightController?.dispose();
+  cameraHeightController = null;
+
+  // 根据当前速度单位决定是否启用相机高度控制器
+  if (velocityUnit.value === "px/s") {
+    cameraHeightController = new CameraHeightController({
+      viewer,
+      target: windLayer.value,
+      minHeightChange: 10,
+      onChanged: (state) => {
+        console.info("[CameraHeightController] 风场配置已更新", {
+          cameraHeight: Math.round(state.height),
+          cameraHeightKm: Number((state.height / 1000).toFixed(2)),
+          profileIndex: state.profileIndex,
+          profileKey: state.profile.key,
+          normalizedVelocityScale: state.velocityScale,
+          profileConfig: state.profile,
+          appliedConfig: windLayer.value?.getConfig(),
+        });
+      },
+    });
+    cameraHeightController.start();
+  }
 }
 
 async function loadFrames() {
@@ -281,6 +332,26 @@ onBeforeUnmount(() => {
       </button>
       <span class="wind-status" :class="{ 'is-error': errorMessage }">{{ statusText }}</span>
       <span v-if="isReady" class="wind-status">第 {{ currentIndex + 1 }} / {{ frameCount }} 帧</span>
+    </section>
+
+    <!-- 速度单位切换按钮 -->
+    <section class="wind-velocity-toolbar" aria-label="速度单位切换">
+      <button
+        type="button"
+        class="wind-velocity-btn"
+        :class="{ 'is-active': velocityUnit === 'm/s' }"
+        @click="setVelocityUnit('m/s')"
+      >
+        m/s
+      </button>
+      <button
+        type="button"
+        class="wind-velocity-btn"
+        :class="{ 'is-active': velocityUnit === 'px/s' }"
+        @click="setVelocityUnit('px/s')"
+      >
+        像素/s
+      </button>
     </section>
 
     <section class="wind-panel wind-panel--player" aria-label="风场播放控件">

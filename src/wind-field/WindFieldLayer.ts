@@ -794,7 +794,7 @@ export default class WindFieldLayer {
   #setCanvasVisible(visible: boolean): void {
     const canvas = this.windLayer && this.windLayer.canvas;
     if (canvas && canvas.style) {
-      canvas.style.display = visible ? "" : "none";
+      canvas.style.visibility = visible ? "visible" : "hidden";
     }
   }
 }
