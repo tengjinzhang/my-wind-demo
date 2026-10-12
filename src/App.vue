@@ -276,8 +276,8 @@ onBeforeUnmount(() => {
     <div id="cesiumContainer" class="cesium-container"></div>
 
     <section class="wind-toolbar" aria-label="风场时序播放">
-      <button class="wind-button wind-button--primary" type="button" :disabled="loading" @click="loadFrames">
-        {{ loading ? "加载中..." : "加载风场" }}
+      <button class="wind-button wind-button--primary" type="button" :disabled="loading || isReady" @click="loadFrames">
+        {{ loading ? "加载中..." : isReady ? "已加载" : "加载风场" }}
       </button>
       <span class="wind-status" :class="{ 'is-error': errorMessage }">{{ statusText }}</span>
       <span v-if="isReady" class="wind-status">第 {{ currentIndex + 1 }} / {{ frameCount }} 帧</span>
@@ -321,5 +321,15 @@ onBeforeUnmount(() => {
       :disabled="!isReady"
       @layer-disposed="handleLayerDisposed"
     />
+
+    <!-- 加载蒙层 -->
+    <Transition name="fade">
+      <div v-if="loading" class="wind-loading-overlay">
+        <div class="wind-loading-content">
+          <div class="wind-loading-spinner"></div>
+          <p class="wind-loading-text">正在加载风场数据...</p>
+        </div>
+      </div>
+    </Transition>
   </main>
 </template>

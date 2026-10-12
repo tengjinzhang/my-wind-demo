@@ -57,12 +57,12 @@ function disposeLayer(): void {
     <div class="wind-player__actions">
       <button type="button" :disabled="props.disabled" @click="showLayer">显示图层</button>
       <button type="button" :disabled="props.disabled" @click="hideLayer">隐藏图层</button>
-      <button type="button" :disabled="props.disabled" @click="removeLayer">移除图层</button>
+      <button type="button" :disabled="props.disabled" @click="disposeLayer">销毁图层</button>
+      <!-- <button type="button" :disabled="props.disabled" @click="removeLayer">移除图层</button> -->
     </div>
     <div class="wind-player__actions">
       <button type="button" :disabled="props.disabled" @click="playAnimation">播放动画</button>
       <button type="button" :disabled="props.disabled" @click="pauseAnimation">暂停动画</button>
-      <button type="button" :disabled="props.disabled" @click="disposeLayer">销毁图层</button>
     </div>
   </section>
 </template>
