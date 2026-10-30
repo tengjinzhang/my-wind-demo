@@ -91,6 +91,13 @@ input:focus-visible {
   letter-spacing: 0.08em;
 }
 
+/* 公共操作区分组之间的竖向分隔线 */
+.wind-shell-actions__divider {
+  width: 1px;
+  height: 18px;
+  background: var(--wf-line);
+}
+
 /* 分段控件：底色凹槽 + 选中块 */
 .wind-segmented {
   display: flex;

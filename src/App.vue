@@ -1,5 +1,12 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef, markRaw } from "vue";
+import {
+  computed,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  shallowRef,
+  markRaw,
+} from "vue";
 
 import WindFieldLayerControls from "./components/WindFieldLayerControls.vue";
 import WindFieldParametersControls from "./components/WindFieldParametersControls.vue";
@@ -14,6 +21,11 @@ const currentIndex = ref(0);
 const currentTime = ref("");
 // 速度控制：m/s 按目标米每秒，px/s 按目标像素每秒
 const velocityUnit = ref("px/s");
+// 地图模式枚举：与 MyMapAdapter.switchCesiumMode 的入参一致（0=二维，1=三维）。
+const MAP_MODE_2D = 0;
+const MAP_MODE_3D = 1;
+// 当前地图模式，与 createViewer 中的初始设置保持同步。
+const mapMode = ref(MAP_MODE_3D);
 
 let viewer = null;
 // 保存 CesiumMap 实例，供图层初始化与地图适配器读取地图状态使用。
@@ -113,14 +125,20 @@ function assertGlobal(name) {
 }
 
 function createViewer() {
-  const maplet = new MyMapAdapter.CesiumMap(document.getElementById('cesiumContainer'));
+  const maplet = new MyMapAdapter.CesiumMap(
+    document.getElementById("cesiumContainer"),
+  );
   const pMapView = markRaw(maplet);
   pMapView.initMap();
-  pMapView.switchCesiumMode(1);
+  pMapView.switchCesiumMode(MAP_MODE_3D);
 
   addAnnotationBaseMap(pMapView);
   viewer = pMapView.viewer;
   mapView = pMapView;
+  // 地图模式变化（包括地图内部触发的切换）时同步按钮选中态。
+  pMapView.mapModelTypeChangeCallback = (mode) => {
+    mapMode.value = mode;
+  };
   // 图层面板独立创建图层时需要同一个 cesium-wind 全局对象。
   cesiumWind.value = window.CesiumWind || null;
 }
@@ -180,15 +198,15 @@ const addAnnotationBaseMap = (pMapView) => {
   }
 
   const url =
-    'https://{s}.tianditu.gov.cn/img_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=img&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILECOL={x}&TILEROW={y}&TILEMATRIX={z}&tk=dac97be0400bd474a33f28a771eb9b5e';
+    "https://{s}.tianditu.gov.cn/img_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=img&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILECOL={x}&TILEROW={y}&TILEMATRIX={z}&tk=dac97be0400bd474a33f28a771eb9b5e";
 
   const addLayer = (url, id) => {
     const layer = viewer.imageryLayers.addImageryProvider(
       new Cesium.UrlTemplateImageryProvider({
         url,
-        subdomains: ['t0', 't1', 't2', 't3', 't4', 't5', 't6', 't7'],
+        subdomains: ["t0", "t1", "t2", "t3", "t4", "t5", "t6", "t7"],
         maximumLevel: 18,
-      })
+      }),
     );
     layer._id = id;
     layer.zIndex = 3;
@@ -196,7 +214,7 @@ const addAnnotationBaseMap = (pMapView) => {
     return layer;
   };
 
-  addLayer(url, 'TIANDITU_CVA');
+  addLayer(url, "TIANDITU_CVA");
 };
 
 function pausePlayback() {
@@ -247,6 +265,51 @@ function setVelocityUnit(unit) {
     velocityControl: windPlayer.getVelocityControl(),
     appliedConfig: windLayer.value?.getConfig(),
   });
+}
+
+/**
+ * 切换地图二三维模式。
+ *
+ * 二维与三维的像素-经纬度映射不同，风场图层内部会在模式变化后自动重建粒子，
+ * 这里只需触发地图本身切换并同步按钮选中态。
+ *
+ * @param {number} mode 目标模式：MAP_MODE_2D / MAP_MODE_3D。
+ */
+function setMapMode(mode) {
+  if (!mapView || mapMode.value === mode) return;
+  mapMode.value = mode;
+  mapView.switchCesiumMode(mode);
+  if (mode === MAP_MODE_2D) relaxMap2DBounds();
+}
+
+// 二维平移边界的放大倍数：放大后可平移到地图范围之外，超出部分显示为黑边。
+const MAP_2D_PAN_LIMIT_SCALE = 4;
+// 相机原始的二维位置钳制边界，只在首次记录，避免反复切换时倍数叠加。
+let base2DMaxCoord = null;
+
+/**
+ * 放宽二维模式下的平移边界，允许视口平移到地图范围之外（超出部分为黑边）。
+ *
+ * Cesium 在二维模式下会用相机内部的 `_maxCoord` 钳制视口中心位置，
+ * 默认正好等于地图投影范围，因此平移到边界就会被拦住。
+ * 这里把该边界按固定倍数放大，即可自由平移且能看到黑边。
+ */
+function relaxMap2DBounds() {
+  // const Cesium = window.Cesium;
+  // const maxCoord = viewer?.camera?._maxCoord;
+  // if (!Cesium || !maxCoord) return;
+
+  // if (!base2DMaxCoord) {
+  //   base2DMaxCoord = new Cesium.Cartesian2(maxCoord.x, maxCoord.y);
+  // }
+  // maxCoord.x = base2DMaxCoord.x * MAP_2D_PAN_LIMIT_SCALE;
+  // maxCoord.y = base2DMaxCoord.y * MAP_2D_PAN_LIMIT_SCALE;
+  mapView.viewBounds = {
+    MinX: -200,
+    MinY: -90,
+    MaxX: 220,
+    MaxY: 90,
+  };
 }
 
 function createWindPlayer() {
@@ -351,7 +414,7 @@ onBeforeUnmount(() => {
   <main class="wind-map-page">
     <div id="cesiumContainer" class="cesium-container"></div>
 
-    <!-- 公共操作区：速度单位切换（同时作用于时序播放与图层控制） -->
+    <!-- 公共操作区：速度单位切换与二三维模式切换（同时作用于时序播放与图层控制） -->
     <nav class="wind-shell-actions" aria-label="公共操作">
       <span class="wind-shell-actions__label">粒子速度</span>
       <div class="wind-segmented" role="group" aria-label="速度单位切换">
@@ -374,6 +437,28 @@ onBeforeUnmount(() => {
           像素/s
         </button>
       </div>
+      <span class="wind-shell-actions__divider" aria-hidden="true"></span>
+      <span class="wind-shell-actions__label">地图模式</span>
+      <div class="wind-segmented" role="group" aria-label="地图二三维模式切换">
+        <button
+          type="button"
+          class="wind-segmented__item"
+          :class="{ 'is-active': mapMode === MAP_MODE_3D }"
+          :aria-pressed="mapMode === MAP_MODE_3D"
+          @click="setMapMode(MAP_MODE_3D)"
+        >
+          三维
+        </button>
+        <button
+          type="button"
+          class="wind-segmented__item"
+          :class="{ 'is-active': mapMode === MAP_MODE_2D }"
+          :aria-pressed="mapMode === MAP_MODE_2D"
+          @click="setMapMode(MAP_MODE_2D)"
+        >
+          二维
+        </button>
+      </div>
     </nav>
 
     <!-- 模块一：时序播放 -->
@@ -393,7 +478,9 @@ onBeforeUnmount(() => {
           >
             {{ loading ? "加载中..." : isReady ? "已加载" : "加载风场" }}
           </button>
-          <span class="wind-status" :class="{ 'is-error': errorMessage }">{{ statusText }}</span>
+          <span class="wind-status" :class="{ 'is-error': errorMessage }">{{
+            statusText
+          }}</span>
           <span v-if="isReady" class="wind-readout">
             <span class="wind-readout__value">{{ currentIndex + 1 }}</span>
             <span class="wind-readout__unit">/ {{ frameCount }} 帧</span>
@@ -401,13 +488,27 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="wind-player__actions">
-          <button type="button" :disabled="!isReady" @click="startPlayback">播放</button>
-          <button type="button" :disabled="!isReady" @click="pausePlayback">暂停</button>
-          <button type="button" :disabled="!isReady" @click="showFirstFrame">首帧</button>
-          <button type="button" :disabled="!isReady" @click="showPreviousFrame">上一帧</button>
-          <button type="button" :disabled="!isReady" @click="showNextFrame">下一帧</button>
-          <button type="button" :disabled="!isReady" @click="showLastFrame">末帧</button>
-          <button type="button" :disabled="!isReady" @click="stopPlayback">结束播放</button>
+          <button type="button" :disabled="!isReady" @click="startPlayback">
+            播放
+          </button>
+          <button type="button" :disabled="!isReady" @click="pausePlayback">
+            暂停
+          </button>
+          <button type="button" :disabled="!isReady" @click="showFirstFrame">
+            首帧
+          </button>
+          <button type="button" :disabled="!isReady" @click="showPreviousFrame">
+            上一帧
+          </button>
+          <button type="button" :disabled="!isReady" @click="showNextFrame">
+            下一帧
+          </button>
+          <button type="button" :disabled="!isReady" @click="showLastFrame">
+            末帧
+          </button>
+          <button type="button" :disabled="!isReady" @click="stopPlayback">
+            结束播放
+          </button>
         </div>
 
         <div class="wind-scrubber">
