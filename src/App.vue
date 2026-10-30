@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, shallowRef, markRaw } from "
 
 import WindFieldLayerControls from "./components/WindFieldLayerControls.vue";
 import WindFieldParametersControls from "./components/WindFieldParametersControls.vue";
-import { CameraHeightController, WindFieldPlayer } from "./wind-field";
+import { WindFieldPlayer } from "./wind-field";
 
 const loading = ref(false);
 const errorMessage = ref("");
@@ -12,28 +12,59 @@ const isPlaying = ref(false);
 const frameCount = ref(0);
 const currentIndex = ref(0);
 const currentTime = ref("");
-// 速度单位：m/s 使用固定参数，px/s 开启相机高度自适应
-const velocityUnit = ref("m/s");
+// 速度控制：m/s 按目标米每秒，px/s 按目标像素每秒
+const velocityUnit = ref("px/s");
 
 let viewer = null;
-let cameraHeightController = null;
+// 保存 CesiumMap 实例，供图层初始化与地图适配器读取地图状态使用。
+let mapView = null;
 // 使用 shallowRef 让两个控制组件能在图层创建/销毁后拿到最新实例。
 const windLayer = shallowRef(null);
+// cesium-wind 全局对象，供图层控制面板独立创建图层使用。
+const cesiumWind = shallowRef(null);
 let windPlayer = null;
 let frames = [];
 
 const config = {
+  // 风场数据解析 Worker 脚本地址，由 DataManager 异步加载风场文件时使用
   dataWorkerUrl: "./dataManager/workers/wind_field_worker.js",
+  // 解析 Worker 并发数量，1 表示串行加载各时次
   dataWorkerCount: 1,
-  frameInterval: 2000,
+  // 时序自动播放时每帧停留时长，单位毫秒（2000 即每帧 2 秒）
+  frameInterval: 4000,
+  // 粒子视觉参数，透传给 cesium-wind 的 WindLayer
   windOptions: {
+    // 粒子拖尾保留时长（单位：帧），值越大轨迹越长
     maxAge: 60,
+    // 粒子整体不透明度，范围 0~1
     globalAlpha: 0.9,
+    // 粒子拖尾线条宽度（单位：像素）
     lineWidth: 2,
-    velocityScale: 1 / 150,
+    // 屏幕中同时存在的粒子数量上限，值越大越密、性能开销越高
     paths: 2000,
   },
+  // 速度控制
+  velocityControl: {
+    // 当前生效模式：pixel 像素每秒（屏幕速度恒定）、meter 米每秒（地面速度恒定）
+    mode: "pixel",
+    // 实际速度调整系数：对外唯一可调量，作用于真实风速，把真实风速放大到可见量级
+    realSpeedFactor: 2500,
+  },
+  // 图层控制面板的独立数据源：固定地址，与时序播放数据互不影响
+  layerPanel: {
+    // 图层控制面板单独请求的数据文件地址
+    dataUrl: "./data/wind/wind_003.json",
+  },
 };
+
+/** 按当前速度单位生成 WindFieldPlayer 需要的 velocityControl 配置。 */
+function buildVelocityControl() {
+  // 统计口径与单位换算不传，交由 WindFieldLayer 使用内部默认值。
+  return {
+    mode: velocityUnit.value === "m/s" ? "meter" : "pixel",
+    realSpeedFactor: config.velocityControl.realSpeedFactor,
+  };
+}
 
 // 模拟真实项目中的时次清单：每个时次对应一个独立的数据文件。
 // 时间信息来自业务侧的时次元数据，不放在风场 JSON 文件中。
@@ -88,8 +119,59 @@ function createViewer() {
   pMapView.switchCesiumMode(1);
 
   addAnnotationBaseMap(pMapView);
-  viewer = pMapView.viewer
+  viewer = pMapView.viewer;
+  mapView = pMapView;
+  // 图层面板独立创建图层时需要同一个 cesium-wind 全局对象。
+  cesiumWind.value = window.CesiumWind || null;
 }
+
+/**
+ * 速度换算使用的地图适配器。
+ *
+ * 分辨率统一采用 MapBaseHelper 的「相机距离法」计算，与页面比例尺来源保持一致：
+ *   const center = MapBaseHelper.getMapsCenter(viewer);
+ *   const dis = MapBaseHelper.getCameraDistance(viewer, center);
+ *   const level = MapBaseHelper.getMapsLevel(viewer, center);
+ *   let resolution = MapBaseHelper.level2Resolution(level, true);
+ *   const scale = MapBaseHelper.resolution2Scale(resolution);
+ *   const level2 = MapBaseHelper.distance2MapsLevel(viewer, dis);
+ *   resolution = MapBaseHelper.level2Resolution(level2, true);
+ * 适配器只暴露风场计算真正需要的两个量：
+ *   - getResolution()：最终分辨率（米/像素）；
+ *   - getScale()：按该分辨率换算出的比例尺分母。
+ * 两者均由 MapBaseHelper 静态方法在调用时刻实时读取地图状态。
+ */
+function buildVelocityMapAdapter() {
+  return {
+    /** 取得当前分辨率（米/像素），即上文 level2Resolution(level2, true) 的结果。 */
+    getResolution: () => {
+      const helper = MyMapAdapter?.MapBaseHelper;
+      if (!helper || !viewer) return 0;
+      // 取地图中心点作为相机距离的参考点（未取到中心时传 undefined，由射线拾取兜底）。
+      const center = helper.getMapsCenter(viewer);
+      const distance = helper.getCameraDistance(viewer, center);
+      // 先用中心点求层级，再用相机距离反算层级，取反算结果作为最终层级。
+      const level = helper.getMapsLevel(viewer, center);
+      let resolution = helper.level2Resolution(level, true);
+      const levelByDistance = helper.distance2MapsLevel(viewer, distance);
+      resolution = helper.level2Resolution(levelByDistance, true);
+      return resolution;
+    },
+    /** 取得当前比例尺分母，与页面比例尺展示口径一致（Math.round 前的结果）。 */
+    getScale: () => {
+      const resolution = buildVelocityMapAdapter().getResolution();
+      return MyMapAdapter?.MapBaseHelper?.resolution2Scale?.(resolution) ?? 0;
+    },
+    getViewLatitude: () => {
+      const cartographic = viewer?.camera?.positionCartographic;
+      const latitude = cartographic?.latitude;
+      return typeof latitude === "number" ? (latitude * 180) / Math.PI : 0;
+    },
+  };
+}
+
+// 供图层控制面板复用的地图适配器实例，函数内部实时读取最新地图状态。
+const velocityMapAdapter = buildVelocityMapAdapter();
 
 const addAnnotationBaseMap = (pMapView) => {
   const viewer = pMapView.viewer;
@@ -156,50 +238,18 @@ function showLastFrame() {
 
 function setVelocityUnit(unit) {
   velocityUnit.value = unit;
-  if (!windLayer.value) return;
+  if (!windPlayer) return;
 
-  if (unit === "m/s") {
-    // m/s 模式：禁用相机高度控制器，使用固定参数
-    if (cameraHeightController) {
-      cameraHeightController.dispose();
-      cameraHeightController = null;
-    }
-    // 应用默认配置中的固定速度参数
-    windLayer.value?.setVelocityScale?.(config.windOptions.velocityScale);
-    windLayer.value?.setPaths?.(config.windOptions.paths);
-    windLayer.value?.setLineWidth?.(2);
-    windLayer.value?.setMaxAge?.(config.windOptions.maxAge);
-    console.info("[速度单位] 已切换至 m/s，使用固定参数", {
-      velocityScale: config.windOptions.velocityScale,
-      paths: config.windOptions.paths,
-    });
-  } else {
-    // px/s 模式：启用相机高度控制器
-    cameraHeightController?.dispose();
-    cameraHeightController = new CameraHeightController({
-      viewer,
-      target: windLayer.value,
-      minHeightChange: 10,
-      onChanged: (state) => {
-        console.info("[CameraHeightController] 风场配置已更新", {
-          cameraHeight: Math.round(state.height),
-          cameraHeightKm: Number((state.height / 1000).toFixed(2)),
-          profileIndex: state.profileIndex,
-          profileKey: state.profile.key,
-          normalizedVelocityScale: state.velocityScale,
-          profileConfig: state.profile,
-          appliedConfig: windLayer.value?.getConfig(),
-        });
-      },
-    });
-    cameraHeightController.start();
-    console.info("[速度单位] 已切换至 px/s，开启相机高度自适应");
-  }
+  // 运行时切换速度控制方式，门面会随缩放自动重算 velocityScale。
+  windPlayer.setVelocityControl(buildVelocityControl());
+  console.info("[速度控制] 已切换", {
+    unit,
+    velocityControl: windPlayer.getVelocityControl(),
+    appliedConfig: windLayer.value?.getConfig(),
+  });
 }
 
 function createWindPlayer() {
-  cameraHeightController?.dispose();
-  cameraHeightController = null;
   windPlayer?.dispose();
   windPlayer = new WindFieldPlayer({
     viewer,
@@ -209,6 +259,9 @@ function createWindPlayer() {
     frameInterval: config.frameInterval,
     modelCode: "synthetic-wind-20260918",
     windOptions: config.windOptions,
+    // 粒子速度约束：像素每秒（默认）或米每秒，门面结合缩放与纬度实时重算。
+    velocityControl: buildVelocityControl(),
+    mapAdapter: buildVelocityMapAdapter(),
     onFrameLoaded: (item) => {
       if (item.data === null || item.data === undefined) return;
       frames[item.index] = {
@@ -231,29 +284,6 @@ function createWindPlayer() {
     },
   });
   windLayer.value = windPlayer.getLayer();
-  cameraHeightController?.dispose();
-  cameraHeightController = null;
-
-  // 根据当前速度单位决定是否启用相机高度控制器
-  if (velocityUnit.value === "px/s") {
-    cameraHeightController = new CameraHeightController({
-      viewer,
-      target: windLayer.value,
-      minHeightChange: 10,
-      onChanged: (state) => {
-        console.info("[CameraHeightController] 风场配置已更新", {
-          cameraHeight: Math.round(state.height),
-          cameraHeightKm: Number((state.height / 1000).toFixed(2)),
-          profileIndex: state.profileIndex,
-          profileKey: state.profile.key,
-          normalizedVelocityScale: state.velocityScale,
-          profileConfig: state.profile,
-          appliedConfig: windLayer.value?.getConfig(),
-        });
-      },
-    });
-    cameraHeightController.start();
-  }
 }
 
 async function loadFrames() {
@@ -292,15 +322,9 @@ async function loadFrames() {
   }
 }
 
-// 图层组件已经完成 WindFieldLayer.dispose，这里只清理 App 的播放状态和引用。
-function handleLayerDisposed() {
-  cameraHeightController?.dispose();
-  cameraHeightController = null;
-  windPlayer?.dispose();
-  windLayer.value = null;
-  windPlayer = null;
-  isReady.value = false;
-  isPlaying.value = false;
+// 图层面板独立报错只做提示，不影响时序播放区域的加载与播放状态。
+function handlePanelError(message) {
+  console.error("图层控制面板错误：", message);
 }
 
 onMounted(() => {
@@ -313,12 +337,13 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
-  cameraHeightController?.dispose();
   windPlayer?.dispose();
   if (viewer && !viewer.isDestroyed()) viewer.destroy();
   windPlayer = null;
   windLayer.value = null;
+  cesiumWind.value = null;
   viewer = null;
+  mapView = null;
 });
 </script>
 
@@ -326,71 +351,91 @@ onBeforeUnmount(() => {
   <main class="wind-map-page">
     <div id="cesiumContainer" class="cesium-container"></div>
 
-    <section class="wind-toolbar" aria-label="风场时序播放">
-      <button class="wind-button wind-button--primary" type="button" :disabled="loading || isReady" @click="loadFrames">
-        {{ loading ? "加载中..." : isReady ? "已加载" : "加载风场" }}
-      </button>
-      <span class="wind-status" :class="{ 'is-error': errorMessage }">{{ statusText }}</span>
-      <span v-if="isReady" class="wind-status">第 {{ currentIndex + 1 }} / {{ frameCount }} 帧</span>
-    </section>
-
-    <!-- 速度单位切换按钮 -->
-    <section class="wind-velocity-toolbar" aria-label="速度单位切换">
-      <button
-        type="button"
-        class="wind-velocity-btn"
-        :class="{ 'is-active': velocityUnit === 'm/s' }"
-        @click="setVelocityUnit('m/s')"
-      >
-        m/s
-      </button>
-      <button
-        type="button"
-        class="wind-velocity-btn"
-        :class="{ 'is-active': velocityUnit === 'px/s' }"
-        @click="setVelocityUnit('px/s')"
-      >
-        像素/s
-      </button>
-    </section>
-
-    <section class="wind-panel wind-panel--player" aria-label="风场播放控件">
-      <div class="wind-panel__header">时序播放控件</div>
-      <div class="wind-player__actions">
-        <button type="button" :disabled="!isReady" @click="startPlayback">播放</button>
-        <button type="button" :disabled="!isReady" @click="pausePlayback">暂停</button>
-        <button type="button" :disabled="!isReady" @click="showFirstFrame">首帧</button>
-        <button type="button" :disabled="!isReady" @click="showPreviousFrame">上一帧</button>
-        <button type="button" :disabled="!isReady" @click="showNextFrame">下一帧</button>
-        <button type="button" :disabled="!isReady" @click="showLastFrame">末帧</button>
-        <button type="button" :disabled="!isReady" @click="stopPlayback">结束播放</button>
+    <!-- 公共操作区：速度单位切换（同时作用于时序播放与图层控制） -->
+    <nav class="wind-shell-actions" aria-label="公共操作">
+      <span class="wind-shell-actions__label">粒子速度</span>
+      <div class="wind-segmented" role="group" aria-label="速度单位切换">
+        <button
+          type="button"
+          class="wind-segmented__item"
+          :class="{ 'is-active': velocityUnit === 'm/s' }"
+          :aria-pressed="velocityUnit === 'm/s'"
+          @click="setVelocityUnit('m/s')"
+        >
+          m/s
+        </button>
+        <button
+          type="button"
+          class="wind-segmented__item"
+          :class="{ 'is-active': velocityUnit === 'px/s' }"
+          :aria-pressed="velocityUnit === 'px/s'"
+          @click="setVelocityUnit('px/s')"
+        >
+          像素/s
+        </button>
       </div>
-      <input
-        v-model.number="currentIndex"
-        class="wind-player__range"
-        type="range"
-        min="0"
-        :max="Math.max(frameCount - 1, 0)"
-        step="1"
-        :disabled="!isReady"
-        @input="syncFrame(currentIndex)"
-      />
-      <div class="wind-player__time">{{ formattedTime }}</div>
+    </nav>
+
+    <!-- 模块一：时序播放 -->
+    <section class="wind-module wind-module--player" aria-label="风场时序播放">
+      <header class="wind-module__head">
+        <h2 class="wind-module__title">时序播放</h2>
+        <span class="wind-module__tag">TIMELINE</span>
+      </header>
+
+      <div class="wind-module__body">
+        <div class="wind-module__lead">
+          <button
+            class="wind-button wind-button--primary"
+            type="button"
+            :disabled="loading || isReady"
+            @click="loadFrames"
+          >
+            {{ loading ? "加载中..." : isReady ? "已加载" : "加载风场" }}
+          </button>
+          <span class="wind-status" :class="{ 'is-error': errorMessage }">{{ statusText }}</span>
+          <span v-if="isReady" class="wind-readout">
+            <span class="wind-readout__value">{{ currentIndex + 1 }}</span>
+            <span class="wind-readout__unit">/ {{ frameCount }} 帧</span>
+          </span>
+        </div>
+
+        <div class="wind-player__actions">
+          <button type="button" :disabled="!isReady" @click="startPlayback">播放</button>
+          <button type="button" :disabled="!isReady" @click="pausePlayback">暂停</button>
+          <button type="button" :disabled="!isReady" @click="showFirstFrame">首帧</button>
+          <button type="button" :disabled="!isReady" @click="showPreviousFrame">上一帧</button>
+          <button type="button" :disabled="!isReady" @click="showNextFrame">下一帧</button>
+          <button type="button" :disabled="!isReady" @click="showLastFrame">末帧</button>
+          <button type="button" :disabled="!isReady" @click="stopPlayback">结束播放</button>
+        </div>
+
+        <div class="wind-scrubber">
+          <input
+            v-model.number="currentIndex"
+            class="wind-player__range"
+            type="range"
+            min="0"
+            :max="Math.max(frameCount - 1, 0)"
+            step="1"
+            :disabled="!isReady"
+            @input="syncFrame(currentIndex)"
+          />
+          <span class="wind-scrubber__time">{{ formattedTime }}</span>
+        </div>
+      </div>
     </section>
 
-    <!-- <WindFieldParametersControls
-      :wind-layer="windLayer"
-      :paths="config.windOptions.paths"
-      :line-width="config.windOptions.lineWidth"
-      :speed="0.2"
-      :max-age="config.windOptions.maxAge"
-      :disabled="!isReady"
-      :error-message="errorMessage"
-    /> -->
+    <!-- 模块二：图层控制（独立数据源，与时序播放无关） -->
     <WindFieldLayerControls
-      :wind-layer="windLayer"
-      :disabled="!isReady"
-      @layer-disposed="handleLayerDisposed"
+      :viewer="viewer"
+      :cesium-wind="cesiumWind"
+      :data-url="config.layerPanel.dataUrl"
+      :wind-options="config.windOptions"
+      :velocity-unit="velocityUnit === 'm/s' ? 'meter' : 'pixel'"
+      :velocity-control="config.velocityControl"
+      :map-adapter="velocityMapAdapter"
+      @panel-error="handlePanelError"
     />
 
     <!-- 加载蒙层 -->

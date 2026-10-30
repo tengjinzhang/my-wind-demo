@@ -1,3 +1,14 @@
+import {
+  VelocityMotionPlanner,
+  computeWindSpeedStatistics,
+  level2Resolution,
+  normalizeVelocityControl,
+  pickReferenceWindSpeed,
+  type NormalizedVelocityControl,
+  type VelocityControlOptions,
+  type VelocityMode,
+} from "./VelocityScaleCalculator";
+
 /**
  * 风场默认渲染配置。
  *
@@ -43,6 +54,10 @@ interface WindCoreLike {
       height: number,
       unproject: unknown,
     ) => unknown;
+    /** 扁平 U 分量网格数组（m/s），用于统计参考风速。 */
+    us?: ArrayLike<number>;
+    /** 扁平 V 分量网格数组（m/s），用于统计参考风速。 */
+    vs?: ArrayLike<number>;
   };
   /** 底层绘图上下文和画布尺寸。 */
   ctx?: { canvas?: { width: number; height: number } };
@@ -104,6 +119,22 @@ export interface CesiumWindLike {
   ) => WindLayerLike;
 }
 
+/** 提供分辨率与视角纬度的地图适配器最小接口。 */
+export interface VelocityMapAdapterLike {
+  /**
+   * 返回当前分辨率（米/像素）。
+   *
+   * 该值应统一由 MapBaseHelper 的相机距离法计算：
+   * `getMapsCenter` → `getCameraDistance` → `distance2MapsLevel` → `level2Resolution(level, true)`，
+   * 与页面比例尺来源保持一致，避免风场速度与地图显示不同步。
+   */
+  getResolution?: () => number;
+  /** 返回当前比例尺分母（可选，仅用于展示/调试）。 */
+  getScale?: () => number;
+  /** 返回当前视角中心纬度（度）；缺失时视为赤道。 */
+  getViewLatitude?: () => number;
+}
+
 /** 风场图层构造参数。 */
 export interface WindFieldLayerOptions {
   /** Cesium Viewer 实例。创建风场时必须提供。 */
@@ -116,7 +147,29 @@ export interface WindFieldLayerOptions {
   windOptions?: Partial<WindFieldConfig>;
   /** 相机移动后延迟多少毫秒恢复风场显示，默认 0。 */
   cameraVisibilityDelay?: number;
+  /**
+   * 粒子速度控制配置：pixel 像素每秒 / meter 米每秒，默认 pixel。
+   *
+   * 创建图层时会按当前视角换算 velocityScale；之后可通过
+   * setVelocityControl / setVelocityMode 动态切换。
+   */
+  velocityControl?: VelocityControlOptions;
+  /** 分辨率与视角纬度适配器，速度换算依赖它读取当前视角。 */
+  mapAdapter?: VelocityMapAdapterLike;
 }
+
+/** 分辨率变化判定的最小阈值（米/像素），避免浮点抖动触发重算。 */
+const VELOCITY_RESOLUTION_EPSILON = 1e-6;
+
+/**
+ * 默认的渲染帧间隔毫秒数，与 cesium-wind 内部 defaultOptions.frameRate 保持一致。
+ *
+ * 图层创建前的兜底帧率必须与底层实际使用的默认值相同，否则首帧速度换算会有偏差。
+ */
+const DEFAULT_FRAME_INTERVAL = 20;
+
+/** 帧率换算单位：1 秒等于多少毫秒。 */
+const DEFAULT_FRAME_RATE_UNIT = 1000;
 
 const DEFAULT_WIND_CONFIG: WindFieldConfig = {
   colorScale: [
@@ -389,6 +442,20 @@ export default class WindFieldLayer {
   cameraVisibilityDelay: number;
   /** 相机可见性控制器实例。 */
   #cameraController: CameraVisibilityController | null;
+  /** 粒子速度换算器：把真实风速 × 系数换算成 cesium-wind 的 velocityScale。 */
+  #velocityPlanner: VelocityMotionPlanner;
+  /** 当前粒子速度控制配置（模式 + 系数等）。 */
+  #velocityControl: NormalizedVelocityControl;
+  /** 分辨率与视角纬度适配器。 */
+  #mapAdapter: VelocityMapAdapterLike | null;
+  /** 数据统计得到的真实风速（m/s），仅用于换算读数，不参与倍率。 */
+  #dataRealWindSpeed: number | null;
+  /** 上一次重算速度时的分辨率（米/像素）。 */
+  #lastVelocityResolution: number;
+  /** 最近一次写入底层的 velocityScale。 */
+  #appliedVelocityScale: number | null;
+  /** 场景渲染帧监听解绑函数，用于缩放时实时跟随分辨率。 */
+  #unbindVelocityPostRender: (() => void) | null;
 
   /**
    * 创建风场渲染实例。
@@ -414,6 +481,13 @@ export default class WindFieldLayer {
     this.rebuildScheduled = false;
     this.cameraVisibilityDelay = Math.max(0, Number(options.cameraVisibilityDelay) || 0);
     this.#cameraController = null;
+    this.#velocityPlanner = new VelocityMotionPlanner();
+    this.#velocityControl = normalizeVelocityControl(options.velocityControl);
+    this.#mapAdapter = options.mapAdapter || null;
+    this.#dataRealWindSpeed = null;
+    this.#lastVelocityResolution = Number.NaN;
+    this.#appliedVelocityScale = null;
+    this.#unbindVelocityPostRender = null;
     this.#cameraController = new CameraVisibilityController({
       viewer: this.viewer,
       delay: this.cameraVisibilityDelay,
@@ -450,6 +524,11 @@ export default class WindFieldLayer {
     if (!WindLayer) {
       throw new Error("CesiumWind.WindLayer is not available.");
     }
+
+    // 底层 addTo 时会同步渲染首帧，必须在创建前写入目标速度；
+    // 否则首帧仍使用默认 velocityScale，会画出一批超长拖尾（表现为闪一下）。
+    this.#applyVelocityScale();
+
     this.windLayer = new WindLayer(frameData, {
       windOptions: this.visualConfig.toObject(),
     });
@@ -457,6 +536,10 @@ export default class WindFieldLayer {
     this.visible = true;
     this.#applyConfigToWindCore();
     this.#cameraController?.ensureActive();
+    this.#bindVelocityPostRender();
+    this.#lastVelocityResolution = this.#readResolution();
+    // 统计数据真实风速，仅用于换算读数；velocityScale 与其无关，无需重算。
+    this.#resolveDataRealWindSpeed();
     return this.windLayer;
   }
 
@@ -480,6 +563,12 @@ export default class WindFieldLayer {
     this.windLayer = null;
     this.visible = false;
     this.rebuildScheduled = false;
+    // 图层销毁后不再持有场景监听与风速统计，重新创建时按新数据重新统计。
+    this.#unbindVelocityPostRender?.();
+    this.#unbindVelocityPostRender = null;
+    this.#dataRealWindSpeed = null;
+    this.#lastVelocityResolution = Number.NaN;
+    this.#appliedVelocityScale = null;
   }
 
   /**
@@ -524,6 +613,9 @@ export default class WindFieldLayer {
       this.windLayer.setData(frameData);
     }
     this.#applyConfigToWindCore();
+    // 新帧数据的风速分布可能不同，重新统计真实风速（仅影响读数）。
+    this.#dataRealWindSpeed = null;
+    this.#resolveDataRealWindSpeed();
     return this.windLayer;
   }
 
@@ -613,6 +705,60 @@ export default class WindFieldLayer {
   }
 
   /**
+   * 设置或切换粒子速度控制。
+   *
+   * 这是粒子速度「pixel 像素每秒 / meter 米每秒」的对外入口：
+   * 类内部按当前模式、地图分辨率、渲染帧率与数据真实风速换算 velocityScale，
+   * 外部只需要关心模式与速度系数，不需要自行换算度值。
+   *
+   * 两种模式各自独立换算：pixel 锁定屏幕像素速度，meter 锁定地面速度；
+   * 切换后立即按新模式生效，realSpeedFactor / pixelSpeedFactor 保持不变。
+   *
+   * @param control 速度控制配置；不传时沿用当前配置。
+   * @returns {void}
+   */
+  setVelocityControl(control?: VelocityControlOptions): void {
+    if (this.isDisposed) return;
+    this.#velocityControl = normalizeVelocityControl(
+      control ?? this.#velocityControl,
+    );
+    // 统计口径或单位换算可能变化，清空缓存后重新统计真实风速。
+    this.#dataRealWindSpeed = null;
+    this.#resolveDataRealWindSpeed();
+    this.#applyVelocityScale();
+  }
+
+  /**
+   * 仅切换粒子速度模式，其余速度配置保持不变。
+   *
+   * @param mode "pixel" 像素每秒（屏幕速度恒定）；"meter" 米每秒（地面速度恒定）。
+   * @returns {void}
+   */
+  setVelocityMode(mode: VelocityMode): void {
+    if (this.isDisposed) return;
+    this.setVelocityControl({
+      mode,
+      realSpeedFactor: this.#velocityControl.realSpeedFactor,
+      realWindSpeedStatistic: this.#velocityControl.realWindSpeedStatistic,
+      windSpeedUnitScale: this.#velocityControl.windSpeedUnitScale,
+    });
+  }
+
+  /**
+   * 获取当前速度控制配置与最近一次写入底层的 velocityScale。
+   *
+   * @returns {NormalizedVelocityControl & { velocityScale: number | null }}
+   */
+  getVelocityControl(): NormalizedVelocityControl & {
+    velocityScale: number | null;
+  } {
+    return {
+      ...this.#velocityControl,
+      velocityScale: this.#appliedVelocityScale,
+    };
+  }
+
+  /**
    * 设置粒子数量，并重建粒子缓存。
    *
    * @param {number} paths 粒子数量，必须是非负整数。
@@ -664,6 +810,47 @@ export default class WindFieldLayer {
   }
 
   /**
+   * 获取底层渲染帧率，单位为帧/秒。
+   *
+   * cesium-wind 内部以 `options.frameRate`（毫秒）节流渲染，这里换算成秒，
+   * 供粒子速度换算模块计算 `velocityScale` 使用。图层未创建时按底层默认帧间隔推算。
+   *
+   * @returns {number} 渲染帧率，单位为帧/秒。
+   */
+  getWindFrameRate(): number {
+    const wind = this.getWindCore();
+    const rawMilliseconds = Number(
+      wind?.options && (wind.options as Record<string, unknown>).frameRate,
+    );
+    const milliseconds =
+      Number.isFinite(rawMilliseconds) && rawMilliseconds > 0
+        ? rawMilliseconds
+        : DEFAULT_FRAME_INTERVAL;
+    return DEFAULT_FRAME_RATE_UNIT / milliseconds;
+  }
+
+  /**
+   * 读取底层当前帧风场数据，统计参考风速（max / 中位 / 均值）。
+   *
+   * 数据源为 cesium-wind 的 `wind.field.us / wind.field.vs`（扁平 U/V 网格），
+   * 单位与数据一致（本 demo 为 m/s）。图层未创建或字段缺失时返回全 0。
+   *
+   * @param unitScale 风速单位换算系数，数据已是 m/s 时取 1。
+   * @returns 参考风速统计量；不可用时各字段为 0。
+   */
+  getWindSpeedStatistics(unitScale = 1): {
+    max: number;
+    median: number;
+    mean: number;
+  } {
+    const field = this.getWindCore()?.field;
+    const us = field?.us;
+    const vs = field?.vs;
+    if (!us || !vs) return { max: 0, median: 0, mean: 0 };
+    return computeWindSpeedStatistics(us, vs, unitScale);
+  }
+
+  /**
    * 销毁风场渲染类。
    *
    * 会移除当前风场图层，释放 viewer 和 CesiumWind 引用，并把 isDisposed 标记为 true。
@@ -695,6 +882,106 @@ export default class WindFieldLayer {
     if (!this.CesiumWind || !this.CesiumWind.WindLayer) {
       throw new Error("CesiumWind.WindLayer is not available.");
     }
+  }
+
+  /**
+   * 绑定场景渲染帧监听，缩放过程中分辨率变化时实时重算速度。
+   *
+   * 只监听 moveEnd 会在滚轮/惯性缩放期间滞后，导致屏幕像素速度漂移；
+   * 这里用 scene.postRender 逐帧比对分辨率，变化时才重算。
+   *
+   * @returns {void}
+   */
+  #bindVelocityPostRender(): void {
+    this.#unbindVelocityPostRender?.();
+    this.#unbindVelocityPostRender = null;
+
+    const scene = (this.viewer as {
+      scene?: {
+        postRender?: { addEventListener?: (cb: () => void) => (() => void) | void };
+      };
+    } | null)?.scene;
+    const postRender = scene?.postRender;
+    if (!postRender?.addEventListener) return;
+
+    const remove = postRender.addEventListener(() => this.#syncVelocityScaleIfNeeded());
+    this.#unbindVelocityPostRender = typeof remove === "function" ? remove : null;
+  }
+
+  /** 仅在分辨率变化时重算 velocityScale，避免每帧无谓计算。 */
+  #syncVelocityScaleIfNeeded(): void {
+    if (!this.windLayer) return;
+
+    const resolution = this.#readResolution();
+    const changed =
+      !Number.isFinite(this.#lastVelocityResolution) ||
+      Math.abs(resolution - this.#lastVelocityResolution) > VELOCITY_RESOLUTION_EPSILON;
+    if (!changed) return;
+
+    this.#lastVelocityResolution = resolution;
+    this.#applyVelocityScale();
+  }
+
+  /**
+   * 按当前模式、分辨率、帧率与数据真实风速换算 velocityScale 并写入配置。
+   *
+   * 图层尚未创建时同样可调用：此时只写入 visualConfig，
+   * 保证 createWindLayer 的首帧就用正确速度渲染。
+   *
+   * @returns {void}
+   */
+  #applyVelocityScale(): void {
+    if (this.isDisposed) return;
+
+    try {
+      const result = this.#velocityPlanner.update(this.#velocityControl, {
+        frameRate: this.getWindFrameRate(),
+        resolution: this.#readResolution(),
+        latitude: this.#readViewLatitude(),
+        realWindSpeed: this.#dataRealWindSpeed ?? 0,
+      });
+      this.#appliedVelocityScale = result.velocityScale;
+      this.setVelocityScale(result.velocityScale);
+    } catch (error) {
+      console.warn("[WindFieldLayer] velocityScale 计算失败：", error);
+    }
+  }
+
+  /**
+   * 读取当前分辨率（米/像素），由适配器按 MapBaseHelper 相机距离法提供。
+   * 适配器缺失或返回非法值时回退到层级 0（世界全图）对应的分辨率。
+   */
+  #readResolution(): number {
+    const resolution = this.#mapAdapter?.getResolution?.();
+    if (Number.isFinite(Number(resolution)) && Number(resolution) > 0) {
+      return Number(resolution);
+    }
+    return level2Resolution(0);
+  }
+
+  /** 读取当前视角中心纬度（度），适配器缺失时按赤道处理。 */
+  #readViewLatitude(): number {
+    const latitude = this.#mapAdapter?.getViewLatitude?.();
+    return Number.isFinite(Number(latitude)) ? Number(latitude) : 0;
+  }
+
+  /**
+   * 统计数据真实风速并缓存。
+   *
+   * 统计口径由 velocityControl.realWindSpeedStatistic 决定（默认中位数）；
+   * 图层未创建时读不到字段，保持 null，下次调用再统计。
+   *
+   * @returns {void}
+   */
+  #resolveDataRealWindSpeed(): void {
+    if (this.#dataRealWindSpeed !== null) return;
+
+    const stats = this.getWindSpeedStatistics(this.#velocityControl.windSpeedUnitScale);
+    const realWindSpeed = pickReferenceWindSpeed(
+      stats,
+      this.#velocityControl.realWindSpeedStatistic,
+    );
+    this.#dataRealWindSpeed = realWindSpeed > 0 ? realWindSpeed : null;
   }
 
   /**

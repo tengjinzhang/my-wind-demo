@@ -36,14 +36,18 @@ export interface CameraHeightProfile
   key?: string;
 }
 
-/** 默认的相机高度参数档位。外部传入 profiles 时会整体覆盖。 */
+/**
+ * 默认的相机高度参数档位。外部传入 profiles 时会整体覆盖。
+ *
+ * 注意：velocityScale 不再由档位写死，统一交给风场门面的速度换算模块
+ * （VelocityScaleCalculator）按「像素每秒 / 米每秒」两种约束计算，避免两处互相覆盖。
+ */
 export const DEFAULT_CAMERA_HEIGHT_PROFILES: CameraHeightProfile[] = [
   {
     key: "ground",
     maxHeight: 1000,
     setMaxAge: 18,
     setLineWidth: 0.75,
-    setVelocityScale: 1 / 650,
     setPaths: 120,
   },
   {
@@ -51,7 +55,6 @@ export const DEFAULT_CAMERA_HEIGHT_PROFILES: CameraHeightProfile[] = [
     maxHeight: 5000,
     setMaxAge: 24,
     setLineWidth: 0.8,
-    setVelocityScale: 1 / 600,
     setPaths: 220,
   },
   {
@@ -59,7 +62,6 @@ export const DEFAULT_CAMERA_HEIGHT_PROFILES: CameraHeightProfile[] = [
     maxHeight: 20000,
     setMaxAge: 30,
     setLineWidth: 0.9,
-    setVelocityScale: 1 / 500,
     setPaths: 400,
   },
   {
@@ -67,7 +69,6 @@ export const DEFAULT_CAMERA_HEIGHT_PROFILES: CameraHeightProfile[] = [
     maxHeight: 50000,
     setMaxAge: 36,
     setLineWidth: 1,
-    setVelocityScale: 1 / 400,
     setPaths: 650,
   },
   {
@@ -75,7 +76,6 @@ export const DEFAULT_CAMERA_HEIGHT_PROFILES: CameraHeightProfile[] = [
     maxHeight: 100000,
     setMaxAge: 42,
     setLineWidth: 1.1,
-    setVelocityScale: 1 / 320,
     setPaths: 850,
   },
   {
@@ -83,7 +83,6 @@ export const DEFAULT_CAMERA_HEIGHT_PROFILES: CameraHeightProfile[] = [
     maxHeight: 250000,
     setMaxAge: 48,
     setLineWidth: 1.25,
-    setVelocityScale: 1 / 280,
     setPaths: 1050,
   },
   {
@@ -91,7 +90,6 @@ export const DEFAULT_CAMERA_HEIGHT_PROFILES: CameraHeightProfile[] = [
     maxHeight: 800000,
     setMaxAge: 55,
     setLineWidth: 1.5,
-    setVelocityScale: 1 / 230,
     setPaths: 1300,
   },
   {
@@ -99,7 +97,6 @@ export const DEFAULT_CAMERA_HEIGHT_PROFILES: CameraHeightProfile[] = [
     maxHeight: 2000000,
     setMaxAge: 60,
     setLineWidth: 1.75,
-    setVelocityScale: 1 / 190,
     setPaths: 1700,
   },
   {
@@ -107,7 +104,6 @@ export const DEFAULT_CAMERA_HEIGHT_PROFILES: CameraHeightProfile[] = [
     maxHeight: Infinity,
     setMaxAge: 65,
     setLineWidth: 2,
-    setVelocityScale: 1 / 150,
     setPaths: 2200,
   },
 ];

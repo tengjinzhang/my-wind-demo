@@ -6,15 +6,56 @@ body,
   margin: 0;
 }
 
+/* ============================================================
+   设计令牌：深空仪表盘
+   风场图悬浮于三维地球之上，界面取"气象观测仪器"语汇：
+   冷调深空底 + 单一青蓝信号色 + 等宽数字读数。
+   ============================================================ */
+:root {
+  /* 颜色 */
+  --wf-void: #0a0f14;
+  --wf-surface: rgba(16, 24, 31, 0.86);
+  --wf-surface-strong: rgba(21, 31, 40, 0.94);
+  --wf-line: rgba(255, 255, 255, 0.14);
+  --wf-line-strong: rgba(255, 255, 255, 0.26);
+  --wf-text: #eef4f8;
+  --wf-text-dim: rgba(233, 242, 248, 0.58);
+  --wf-signal: #4fd1ff;
+  --wf-signal-deep: #1573b8;
+  --wf-signal-soft: rgba(79, 209, 255, 0.16);
+  --wf-danger: #ff8a7a;
+
+  /* 排版 */
+  --wf-font-ui: "PingFang SC", "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
+  --wf-font-mono: "SFMono-Regular", "JetBrains Mono", Consolas, "Courier New", monospace;
+
+  /* 尺寸 */
+  --wf-radius: 10px;
+  --wf-radius-sm: 6px;
+  --wf-gap: 12px;
+  --wf-edge: 16px;
+
+  /* 阴影 */
+  --wf-shadow: 0 12px 34px rgba(0, 0, 0, 0.42);
+}
+
 body {
   overflow: hidden;
-  font-family: "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
-  background: #101820;
+  font-family: var(--wf-font-ui);
+  background: var(--wf-void);
+  -webkit-font-smoothing: antialiased;
 }
 
 button,
 input {
   font: inherit;
+}
+
+/* 统一键盘焦点样式，保证可访问性 */
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--wf-signal);
+  outline-offset: 2px;
 }
 
 .wind-map-page,
@@ -24,139 +65,250 @@ input {
   height: 100%;
 }
 
-.wind-toolbar {
+/* ============================================================
+   公共操作区：粒子速度单位切换
+   置于右上角，作为两个功能模块共享的全局开关。
+   ============================================================ */
+.wind-shell-actions {
   position: absolute;
-  top: 16px;
-  left: 16px;
-  z-index: 3;
+  top: var(--wf-edge);
+  left: var(--wf-edge);
+  z-index: 5;
   display: flex;
   align-items: center;
   gap: 10px;
+  padding: 7px 9px 7px 13px;
+  border: 1px solid var(--wf-line);
+  border-radius: var(--wf-radius);
+  background: var(--wf-surface);
+  box-shadow: var(--wf-shadow);
+  backdrop-filter: blur(10px);
 }
 
-/* 速度单位切换工具栏 */
-.wind-velocity-toolbar {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  z-index: 3;
+.wind-shell-actions__label {
+  color: var(--wf-text-dim);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+
+/* 分段控件：底色凹槽 + 选中块 */
+.wind-segmented {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 8px;
-  background: rgba(24, 32, 40, 0.88);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+  padding: 2px;
+  border: 1px solid var(--wf-line);
+  border-radius: var(--wf-radius-sm);
+  background: rgba(0, 0, 0, 0.28);
 }
 
-.wind-velocity-btn {
-  min-height: 32px;
-  padding: 0 14px;
-  border: 1px solid rgba(255, 255, 255, 0.34);
+.wind-segmented__item {
+  min-width: 62px;
+  min-height: 28px;
+  padding: 0 12px;
+  border: 0;
   border-radius: 4px;
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--wf-text-dim);
   background: transparent;
   cursor: pointer;
-  font-size: 13px;
-  font-weight: 500;
-  transition: all 0.2s ease;
+  font-family: var(--wf-font-mono);
+  font-size: 12.5px;
+  letter-spacing: 0.02em;
+  transition: color 0.18s ease, background 0.18s ease;
 }
 
-.wind-velocity-btn:hover {
-  color: #fff;
-  background: rgba(75, 163, 226, 0.3);
+.wind-segmented__item:hover:not(.is-active) {
+  color: var(--wf-text);
 }
 
-.wind-velocity-btn.is-active {
-  border-color: rgba(103, 197, 255, 0.74);
-  color: #fff;
-  background: rgba(36, 104, 180, 0.9);
+.wind-segmented__item.is-active {
+  color: #041017;
+  background: var(--wf-signal);
+  box-shadow: 0 0 16px rgba(79, 209, 255, 0.42);
 }
 
+/* ============================================================
+   功能模块外壳：时序播放 / 图层控制 共用结构
+   ============================================================ */
+.wind-module {
+  position: absolute;
+  z-index: 4;
+  box-sizing: border-box;
+  border: 1px solid var(--wf-line);
+  border-radius: var(--wf-radius);
+  background: var(--wf-surface);
+  box-shadow: var(--wf-shadow);
+  backdrop-filter: blur(10px);
+}
+
+/* 顶部一条柔和的高光，暗示"仪器面板"的玻璃质感 */
+.wind-module::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 12px;
+  left: 12px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(79, 209, 255, 0.5), transparent);
+}
+
+.wind-module--player {
+  right: var(--wf-edge);
+  bottom: var(--wf-edge);
+  left: var(--wf-edge);
+}
+
+.wind-module--layer {
+  top: 74px;
+  left: var(--wf-edge);
+  width: 296px;
+}
+
+/* 模块标题栏 */
+.wind-module__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 15px;
+  border-bottom: 1px solid var(--wf-line);
+}
+
+.wind-module__title {
+  margin: 0;
+  color: var(--wf-text);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* 右侧的状态英文小标签，用编号式语义区分两个模块 */
+.wind-module__tag {
+  color: var(--wf-signal);
+  font-family: var(--wf-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+}
+
+.wind-module__body {
+  padding: 13px 15px 15px;
+}
+
+.wind-module__foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.wind-module__status {
+  color: var(--wf-text-dim);
+  font-family: var(--wf-font-mono);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.wind-module__status.is-error {
+  color: var(--wf-danger);
+}
+
+/* 时序播放：加载按钮 + 状态读数一行 */
+.wind-module__lead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+/* 帧序号读数：大号数字 + 小号单位，等宽对齐 */
+.wind-readout {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.wind-readout__value {
+  color: var(--wf-signal);
+  font-family: var(--wf-font-mono);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.wind-readout__unit {
+  color: var(--wf-text-dim);
+  font-size: 12px;
+}
+
+/* ============================================================
+   按钮
+   ============================================================ */
 .wind-button,
 .wind-player__actions button {
   min-height: 34px;
   padding: 0 12px;
-  border: 1px solid rgba(255, 255, 255, 0.34);
-  border-radius: 4px;
-  color: #fff;
-  background: rgba(24, 32, 40, 0.86);
+  border: 1px solid var(--wf-line-strong);
+  border-radius: var(--wf-radius-sm);
+  color: var(--wf-text);
+  background: rgba(255, 255, 255, 0.05);
   cursor: pointer;
   font-size: 13px;
+  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
 }
 
 .wind-button--primary {
-  border-color: rgba(119, 204, 255, 0.74);
-  background: rgba(36, 104, 180, 0.9);
+  border-color: rgba(79, 209, 255, 0.6);
+  color: #041017;
+  background: var(--wf-signal);
+  font-weight: 600;
+}
+
+.wind-button--primary:hover:not(:disabled) {
+  border-color: rgba(79, 209, 255, 0.6);
+  background: #74dbff;
 }
 
 button:hover:not(:disabled) {
-  background: rgba(75, 163, 226, 0.64);
+  border-color: rgba(79, 209, 255, 0.6);
+  background: var(--wf-signal-soft);
 }
 
 button:disabled {
-  cursor: default;
-  opacity: 0.45;
+  cursor: not-allowed;
+  opacity: 0.4;
 }
 
+/* 状态徽标 */
 .wind-status {
-  padding: 7px 10px;
-  border-radius: 4px;
-  color: #cfeaff;
-  background: rgba(24, 32, 40, 0.78);
+  padding: 6px 10px;
+  border: 1px solid var(--wf-line);
+  border-radius: var(--wf-radius-sm);
+  color: var(--wf-text-dim);
+  background: rgba(0, 0, 0, 0.24);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
-.wind-status.is-error,
+.wind-status.is-error {
+  border-color: rgba(255, 138, 122, 0.4);
+  color: var(--wf-danger);
+}
+
 .wind-panel__error {
-  color: #ffb4a9;
+  margin: 12px 0 0;
+  color: var(--wf-danger);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
-.wind-panel {
-  position: absolute;
-  z-index: 3;
-  box-sizing: border-box;
-  padding: 13px 15px 15px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 8px;
-  color: #fff;
-  background: rgba(24, 32, 40, 0.88);
-  box-shadow: 0 5px 18px rgba(0, 0, 0, 0.24);
-}
-
-.wind-panel--player {
-  right: 16px;
-  bottom: 16px;
-  left: 16px;
-}
-
-.wind-panel--settings {
-  top: 16px;
-  right: 16px;
-  width: 280px;
-}
-
-.wind-panel--layer {
-  top: 120px;
-  right: 16px;
-  width: 280px;
-}
-
-.wind-panel__header {
-  margin-bottom: 12px;
-  font-size: 14px;
-  font-weight: 600;
-}
-
+/* ============================================================
+   按钮栅格
+   ============================================================ */
 .wind-player__actions {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 8px;
 }
 
-.wind-panel--layer .wind-player__actions {
+.wind-module--layer .wind-player__actions {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
@@ -164,119 +316,120 @@ button:disabled {
   padding: 0 8px;
 }
 
-.wind-player__range {
-  width: 100%;
-  margin: 13px 0 0;
-  accent-color: #67c5ff;
-  cursor: pointer;
+/* 图层控制内的分组：小标签 + 按钮组 */
+.wind-action-group {
+  margin-bottom: 13px;
 }
 
-.wind-player__time {
-  margin-top: 6px;
-  color: #cfeaff;
-  font-size: 12px;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-
-.wind-panel__row {
-  display: block;
-  margin-bottom: 14px;
-  color: rgba(255, 255, 255, 0.86);
-  font-size: 13px;
-}
-
-.wind-panel__row:last-of-type {
+.wind-action-group:last-of-type {
   margin-bottom: 0;
 }
 
-.wind-panel__row-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 6px;
+.wind-action-group__label {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--wf-text-dim);
+  font-size: 11px;
+  letter-spacing: 0.1em;
 }
 
-.wind-panel__row-head strong {
-  color: #9ad8ff;
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
+/* ============================================================
+   时序滑块
+   ============================================================ */
+.wind-scrubber {
+  position: relative;
+  margin-top: 14px;
+  padding-top: 16px;
 }
 
-.wind-panel input[type="range"] {
+/* 滑块上方的刻度细线，强化"时间轴"语义 */
+.wind-scrubber::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: var(--wf-line);
+}
+
+.wind-player__range {
   appearance: none;
   width: 100%;
   height: 4px;
   margin: 0;
   border-radius: 2px;
-  background: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.18);
   cursor: pointer;
 }
 
-.wind-panel input[type="range"]::-webkit-slider-thumb {
+.wind-player__range::-webkit-slider-thumb {
   appearance: none;
-  width: 14px;
-  height: 14px;
-  border: 2px solid rgba(255, 255, 255, 0.9);
+  width: 15px;
+  height: 15px;
+  border: 2px solid var(--wf-signal);
   border-radius: 50%;
-  background: #9ad8ff;
+  background: var(--wf-surface-strong);
+  box-shadow: 0 0 10px rgba(79, 209, 255, 0.55);
   cursor: pointer;
 }
 
-.wind-panel input[type="range"]::-moz-range-thumb {
-  width: 14px;
-  height: 14px;
-  border: 2px solid rgba(255, 255, 255, 0.9);
+.wind-player__range::-moz-range-thumb {
+  width: 15px;
+  height: 15px;
+  border: 2px solid var(--wf-signal);
   border-radius: 50%;
-  background: #9ad8ff;
+  background: var(--wf-surface-strong);
+  box-shadow: 0 0 10px rgba(79, 209, 255, 0.55);
   cursor: pointer;
 }
 
-.wind-panel__error {
-  margin: 13px 0 0;
+.wind-scrubber__time {
+  display: block;
+  margin-top: 7px;
+  color: var(--wf-signal);
+  font-family: var(--wf-font-mono);
   font-size: 12px;
-  line-height: 1.5;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
+/* ============================================================
+   响应式
+   ============================================================ */
 @media (max-width: 720px) {
-  .wind-toolbar {
-    right: 16px;
-    flex-wrap: wrap;
+  .wind-shell-actions {
+    justify-content: space-between;
   }
 
-  .wind-panel--settings {
+  .wind-module--layer {
     top: auto;
-    right: 16px;
-    bottom: 240px;
-    left: 16px;
-    width: auto;
-  }
-
-  .wind-panel--layer {
-    top: auto;
-    right: 16px;
-    bottom: 165px;
-    left: 16px;
+    right: var(--wf-edge);
+    bottom: 246px;
+    left: var(--wf-edge);
     width: auto;
   }
 
   .wind-player__actions {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+
+  .wind-module--player .wind-player__actions {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 
-/* 加载蒙层 */
+/* ============================================================
+   加载蒙层
+   ============================================================ */
 .wind-loading-overlay {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
   z-index: 10;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(16, 24, 32, 0.85);
+  background: rgba(10, 15, 20, 0.82);
   backdrop-filter: blur(4px);
 }
 
@@ -286,17 +439,17 @@ button:disabled {
   align-items: center;
   gap: 20px;
   padding: 40px 60px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 12px;
-  background: rgba(24, 32, 40, 0.9);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--wf-line);
+  border-radius: 14px;
+  background: var(--wf-surface-strong);
+  box-shadow: var(--wf-shadow);
 }
 
 .wind-loading-spinner {
-  width: 48px;
-  height: 48px;
-  border: 4px solid rgba(103, 197, 255, 0.2);
-  border-top-color: #67c5ff;
+  width: 46px;
+  height: 46px;
+  border: 3px solid rgba(79, 209, 255, 0.18);
+  border-top-color: var(--wf-signal);
   border-radius: 50%;
   animation: wind-spin 1s linear infinite;
 }
@@ -309,9 +462,21 @@ button:disabled {
 
 .wind-loading-text {
   margin: 0;
-  color: #cfeaff;
+  color: var(--wf-text);
   font-size: 15px;
   font-weight: 500;
+}
+
+/* 尊重系统的"减少动态效果"偏好 */
+@media (prefers-reduced-motion: reduce) {
+  .wind-loading-spinner {
+    animation-duration: 2.4s;
+  }
+
+  .fade-enter-active,
+  .fade-leave-active {
+    transition: none;
+  }
 }
 
 /* 过渡动画 */

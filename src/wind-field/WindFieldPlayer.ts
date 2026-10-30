@@ -8,12 +8,20 @@ import WindFieldDataLoader, {
 } from "./WindFieldDataLoader";
 import WindFieldLayer, {
   type CesiumWindLike,
+  type VelocityMapAdapterLike,
   type WindFieldConfig,
 } from "./WindFieldLayer";
 import WindFieldFrameStrategy, {
   type WindFieldFrameStrategyOptions,
 } from "./WindFieldFrameStrategy";
 import WindFieldPlaybackController from "./WindFieldPlaybackController";
+import {
+  type NormalizedVelocityControl,
+  type VelocityControlOptions,
+} from "./VelocityScaleCalculator";
+
+/** 分辨率与纬度适配器类型由主类 WindFieldLayer 定义，这里转出保持对外引用不变。 */
+export type { VelocityMapAdapterLike };
 
 /** 一帧加载完成后的进度信息。 */
 export interface WindFieldPlayerProgress {
@@ -95,6 +103,16 @@ export interface WindFieldPlayerOptions extends WindFieldPlayerCallbacks {
   windOptions?: Partial<WindFieldConfig>;
   /** 可选的 DataManager 实例，主要用于测试或特殊运行环境。 */
   dataManager?: DataManagerLike | null;
+  /**
+   * 粒子速度控制配置，支持「像素每秒」与「米每秒」两种模式，默认像素每秒。
+   * 门面结合地图分辨率（MapBaseHelper 相机距离法）与渲染帧率换算 velocityScale。
+   */
+  velocityControl?: VelocityControlOptions;
+  /**
+   * 获取当前分辨率与视角纬度的适配器，用于把目标速度换算成 velocityScale。
+   * 需要提供 getResolution()。
+   */
+  mapAdapter?: VelocityMapAdapterLike;
 }
 
 /** load() 可以覆盖的任务配置和回调。 */
@@ -203,6 +221,9 @@ export default class WindFieldPlayer {
       viewer: options.viewer,
       CesiumWind: options.CesiumWind,
       windOptions: options.windOptions,
+      // 粒子速度控制与地图适配器统一交给主类 WindFieldLayer 处理。
+      velocityControl: options.velocityControl,
+      mapAdapter: options.mapAdapter,
     });
     this.strategy = new WindFieldFrameStrategy({
       viewer: options.viewer,
@@ -413,6 +434,29 @@ export default class WindFieldPlayer {
   /** 获取当前策略对象；一般业务代码不需要直接调用它。 */
   getStrategy(): WindFieldFrameStrategy {
     return this.strategy;
+  }
+
+  /**
+   * 切换粒子速度模式或调整系数。
+   *
+   * 换算逻辑由主类 WindFieldLayer 负责：像素模式锁定屏幕像素速度，
+   * 米模式锁定地面速度，两种模式各自独立换算；切换后立即生效，
+   * realSpeedFactor / pixelSpeedFactor 保持不变。
+   *
+   * @param control 速度控制配置；不传时沿用当前配置。
+   */
+  setVelocityControl(control?: VelocityControlOptions): void {
+    if (this.disposed) return;
+    this.layer.setVelocityControl(control);
+  }
+
+  /**
+   * 获取当前速度控制配置及已应用的 velocityScale。
+   *
+   * @returns 模式、目标速度和最近一次应用的 velocityScale。
+   */
+  getVelocityControl(): NormalizedVelocityControl & { velocityScale: number | null } {
+    return this.layer.getVelocityControl();
   }
 
   /** 释放门面内部资源，但不会销毁外部传入的 Cesium Viewer。 */
